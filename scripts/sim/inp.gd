@@ -19,11 +19,14 @@ const C_DOWN := 8192
 const SMASH := 16384   # "this attack is a smash" (stick flick or keyboard modifier)
 const GRAB := 32768
 const START := 65536
+const BACK := 131072      # Select / Back / View (menus only)
+const DASH := 262144      # stick flicked hard sideways this frame (or keyboard tap)
+const WALK_SLOW := 524288 # stick only partly pushed: slow walk
 
 const C_ANY := C_LEFT | C_RIGHT | C_UP | C_DOWN
 
 ## Buffered buttons: index into Fighter.buf
-const BUFFERED := [ATTACK, SPECIAL, JUMP, BALL, SHIELD, GRAB, BURST, C_LEFT, C_RIGHT, C_UP, C_DOWN]
+const BUFFERED := [ATTACK, SPECIAL, JUMP, BALL, SHIELD, GRAB, BURST, C_LEFT, C_RIGHT, C_UP, C_DOWN, DASH]
 
 static func sx(i: int) -> int:
 	return (1 if i & RIGHT else 0) - (1 if i & LEFT else 0)

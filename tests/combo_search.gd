@@ -11,13 +11,16 @@ const MOVES := [
 	["grab", Inp.GRAB], ["ball", Inp.BALL | 2], ["ballup", Inp.BALL | 2 | Inp.UP], ["recall", Inp.BALL],
 ]
 var di := false
+var rng := RandomNumberGenerator.new()
 
 func _init() -> void:
 	di = "di" in OS.get_cmdline_user_args()
 	var best := 0
 	for start_pct in [0, 40, 80, 120]:
-		var n := search(start_pct)
-		best = maxi(best, n)
+		for trial in 5:
+			rng.seed = trial * 7919 + start_pct
+			var n := search(start_pct)
+			best = maxi(best, n)
 	print("BEST GREEDY COMBO: ", best)
 	quit()
 
@@ -54,12 +57,15 @@ func try_seq(sim: GameSim, seq: Array) -> Dictionary:
 
 func build(toward: int, dir_hold: int, wait: int, jump: int, mv: int) -> Array:
 	var seq := []
+	var dash := dir_hold == 4
+	if dash:
+		dir_hold = 2
 	var hold := dirbits(dir_hold, toward)
 	if jump > 0:
 		for k in jump:
 			seq.append(Inp.JUMP | hold)
 	for k in wait:
-		seq.append(hold)
+		seq.append(hold | (Inp.DASH if dash and k == wait - 1 else 0))
 	seq.append(dirbits(mv, toward))
 	seq.append(hold)
 	for k in 40:
@@ -96,11 +102,11 @@ func search(start_pct: int) -> int:
 			var fresh: bool = not (mv[0] in v.combo_moves) and mv[0] != "recall"
 			for jump in [0, 1, 4]:
 				for wait in [pre, pre + 3, pre + 6, pre + 10, pre + 16]:
-					for dh in [0, 2]:
+					for dh in [0, 2, 4]:
 						var seq := build(toward, dh, wait, jump, mv[1])
 						var r := try_seq(sim, seq)
 						if r.ok:
-							var score: int = -r.frames + (30 if fresh else 0)
+							var score: int = -r.frames + (30 if fresh else 0) + rng.randi() % 40
 							if best == null or score > best.score:
 								best = {"score": score, "seq": seq, "frames": r.frames, "name": mv[0]}
 		if best == null:

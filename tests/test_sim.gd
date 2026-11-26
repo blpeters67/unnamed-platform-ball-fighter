@@ -11,6 +11,10 @@ func _init() -> void:
 	test_staling_pushes_away()
 	test_long_combo()
 	test_burst_breaks_combo()
+	test_dash_dance()
+	test_recovery()
+	test_ledge()
+	test_charges_grapple_burst()
 	print("RESULT: ", "PASS" if fails == 0 else "FAIL (%d)" % fails)
 	quit(1 if fails else 0)
 
@@ -166,3 +170,104 @@ func test_burst_breaks_combo() -> void:
 func _close(sim: GameSim) -> void:
 	sim.st.f[0].x = -60 * FX.U
 	sim.st.f[1].x = 60 * FX.U
+
+func test_dash_dance() -> void:
+	print("dash / dash dance / walk")
+	var sim := GameSim.new()
+	run(sim, Inp.RIGHT | Inp.DASH, 0, 1)
+	check(sim.st.f[0].state == GameSim.S_DASH and sim.st.f[0].vx > 0, "flick starts a dash")
+	run(sim, Inp.RIGHT, 0, 4)
+	run(sim, Inp.LEFT | Inp.DASH, 0, 1)
+	check(sim.st.f[0].state == GameSim.S_DASH and sim.st.f[0].vx < 0 and sim.st.f[0].face == -1, "flicking back mid-dash dash-dances")
+	run(sim, Inp.LEFT, 0, 20)
+	check(sim.st.f[0].state == GameSim.S_RUN, "holding after the dash runs")
+	var sim2 := GameSim.new()
+	run(sim2, Inp.RIGHT | Inp.WALK_SLOW, 0, 20)
+	check(sim2.st.f[0].state == GameSim.S_WALK and sim2.st.f[0].vx == CharJuno.WALK_SLOW, "a light tilt walks slowly")
+
+func test_recovery() -> void:
+	print("recovery")
+	var sim := GameSim.new()
+	var f: Dictionary = sim.st.f[0]
+	f.x = 800 * FX.U
+	f.y = 150 * FX.U
+	f.ground = false
+	f.state = GameSim.S_AIR
+	f.face = -1
+	run(sim, Inp.LEFT | Inp.JUMP, 0, 1)
+	run(sim, Inp.LEFT, 0, 14)
+	run(sim, Inp.LEFT | Inp.UP | Inp.SPECIAL, 0, 1)
+	run(sim, Inp.LEFT, 0, 160)
+	check(f.ground or sim.st.f[0].ground, "double jump + up-B gets back from 800px out, 150px below")
+	var sim3 := GameSim.new()
+	var a: Dictionary = sim3.st.f[0]
+	var v: Dictionary = sim3.st.f[1]
+	v.pct = 1200
+	sim3._apply_hit(a, v, sim3.moves["fsmash"].hb[0], "fsmash", false)
+	check(v.hitstun <= 56, "big launches cap hitstun (%d frames)" % v.hitstun)
+
+func test_ledge() -> void:
+	print("ledge")
+	var sim := GameSim.new()
+	var f: Dictionary = sim.st.f[0]
+	f.x = 670 * FX.U
+	f.y = -40 * FX.U
+	f.ground = false
+	f.state = GameSim.S_AIR
+	run(sim, 0, 0, 30)
+	f = sim.st.f[0]
+	check(f.state == GameSim.S_LEDGE, "falling next to the edge grabs the ledge")
+	run(sim, Inp.LEFT, 0, 30)
+	f = sim.st.f[0]
+	check(f.ground and f.x < StageHalo.MAIN_X1 * FX.U, "holding toward the stage climbs up")
+
+func test_charges_grapple_burst() -> void:
+	print("ball charges / grapple / burst")
+	var sim := GameSim.new()
+	var f: Dictionary = sim.st.f[0]
+	sim.st.f[1].x = 600 * FX.U
+	var throws := 0
+	for i in 4:
+		var evs := run(sim, Inp.BALL, 0, 1)
+		evs.append_array(run(sim, 0, 0, 8))
+		for e in evs:
+			if e.t == "toss": throws += 1
+		run(sim, Inp.BALL, 0, 1)  # recall
+		run(sim, 0, 0, 45)
+	f = sim.st.f[0]
+	check(throws == 3, "only 3 ball throws in a row (%d thrown)" % throws)
+	var before: int = sim.st.f[0].charges
+	run(sim, 0, 0, GameSim.CHARGE_FRAMES + 2)
+	check(sim.st.f[0].charges == before + 1, "a charge comes back after 3 seconds")
+	# grapple
+	var g := GameSim.new()
+	var o: Dictionary = g.st.f[0]
+	o.x = 820 * FX.U
+	o.y = 160 * FX.U
+	o.ground = false
+	o.state = GameSim.S_AIR
+	o.face = -1
+	var evs2 := run(g, Inp.BALL | Inp.LEFT | Inp.UP, 0, 1)
+	evs2.append_array(run(g, Inp.LEFT | Inp.UP, 0, 6))
+	evs2.append_array(run(g, 0, 0, 20))
+	var grappled := false
+	for e in evs2:
+		if e.t == "grapple": grappled = true
+	check(grappled and g.st.f[0].state == GameSim.S_LEDGE, "ball thrown at the ledge grapples onto it")
+	# burst can't kill
+	var b := GameSim.new()
+	var a2: Dictionary = b.st.f[0]
+	var v2: Dictionary = b.st.f[1]
+	a2.x = 600 * FX.U
+	a2.pct = 9000
+	v2.x = 560 * FX.U
+	v2.burst = 1000
+	b._apply_hit(a2, v2, b.moves["jab"].hb[0], "jab", false)
+	b.st.f[0].x = 600 * FX.U
+	run(b, 0, Inp.BURST, 1)
+	var kos := 0
+	for i in 40:
+		b.step([0, 0])
+		for e in b.events:
+			if e.t == "ko": kos += 1
+	check(kos == 0, "burst at 900 percent near the edge does not KO (pushed to x=%d)" % (b.st.f[0].x / FX.U))

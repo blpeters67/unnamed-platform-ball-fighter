@@ -61,6 +61,42 @@ static func pose(f: Dictionary, sim: GameSim, t: float) -> Dictionary:
 			p.neck.x += 5
 			p.head.x += 7
 			p.hip.y += absf(sin(ph)) * -2
+		GameSim.S_DASH, GameSim.S_RUN:
+			var ph = float(f.x) / (FX.U * 30.0) * f.face
+			p.foot_f = Vector2(sin(ph) * 24 + 6, -maxf(0, cos(ph)) * 16)
+			p.foot_b = Vector2(-sin(ph) * 24 + 6, -maxf(0, -cos(ph)) * 16)
+			p.hand_f = Vector2(4 - sin(ph) * 14, -54)
+			p.hand_b = Vector2(-20 + sin(ph) * 14, -60)
+			p.neck.x += 14
+			p.head.x += 18
+			p.neck.y += 4
+			p.head.y += 4
+			p.scarf_lift = 0.6
+			if f.state == GameSim.S_DASH and f.sf <= 3:
+				p.neck.x += 6
+				p.head.x += 6
+		GameSim.S_LEDGE:
+			p.hand_f = Vector2(30, -96)
+			p.hand_b = Vector2(24, -98)
+			p.foot_f = Vector2(6, 0 + sin(t * 3.0) * 2)
+			p.foot_b = Vector2(-6, -4)
+			p.neck.x += 4
+			p.head.x += 2
+		GameSim.S_GRAPPLE:
+			p.hand_f = Vector2(40, -84)
+			p.hand_b = Vector2(30, -80)
+			p.foot_f = Vector2(0, -10)
+			p.foot_b = Vector2(-14, -16)
+			p.scarf_lift = -0.6
+		GameSim.S_LEDGE_GETUP:
+			_crouch(p, 1.0 - clampf(f.sf / 12.0, 0, 1))
+			p.hand_f = Vector2(26, -60)
+		GameSim.S_SKID:
+			_crouch(p, 0.7)
+			p.neck.x -= 12
+			p.head.x -= 14
+			p.foot_f = Vector2(20, 0)
+			p.foot_b = Vector2(-10, 0)
 		GameSim.S_JUMPSQUAT, GameSim.S_LAND:
 			_crouch(p, 1.0 if s == GameSim.S_JUMPSQUAT else clampf(1.0 - float(sf) / maxf(1.0, f.landlag), 0, 1))
 		GameSim.S_AIR, GameSim.S_HELPLESS:

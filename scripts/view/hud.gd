@@ -27,7 +27,7 @@ func _draw() -> void:
 	_draw_screen_popups(vs)
 	if m.p2_is_dummy():
 		var mode: String = m.DUMMY_MODES[m.dummy_mode]
-		var txt = "P2: press any button on a controller (or numpad / arrows) to join      CPU mode: %s (pause to change)" % mode
+		var txt = "P2: %s      Back / Select / F2: toggle CPU and sandbag      2nd player: press any button on a controller to join" % mode
 		_text(font_ui, Vector2(0, vs.y - 18), txt, HORIZONTAL_ALIGNMENT_CENTER, vs.x, 18, Color(1, 1, 1, 0.5))
 	if m.paused:
 		_draw_pause(vs)
@@ -86,10 +86,17 @@ func _draw_card(i: int, f: Dictionary, vs: Vector2) -> void:
 		draw_circle(sp, 7, pal.main)
 	# Ball state icon
 	var b: Dictionary = m.sim.st.b[i]
-	var bp = base + Vector2(272, 82)
-	var ball_ready: bool = b.st == GameSim.B_HELD and b.cd == 0
-	draw_circle(bp, 11, FighterArt.OUTLINE)
-	draw_circle(bp, 9, pal.visor if ball_ready else Color(pal.visor, 0.25))
+	# Ball charges: 3 pips, the next one fills up over 3 seconds
+	for c in GameSim.BALL_CHARGES:
+		var bp = base + Vector2(226 + c * 26, 82)
+		draw_circle(bp, 11, FighterArt.OUTLINE)
+		if c < f.charges:
+			draw_circle(bp, 9, pal.visor)
+		else:
+			draw_circle(bp, 9, Color(pal.visor, 0.18))
+			if c == f.charges:
+				var k2 := float(f.charge_t) / GameSim.CHARGE_FRAMES
+				draw_arc(bp, 9, -PI / 2, -PI / 2 + TAU * k2, 20, pal.visor, 3)
 	# Burst meter
 	var bw = 276.0
 	var bx = base + Vector2(12, 128)
@@ -207,7 +214,7 @@ func _draw_pause(vs: Vector2) -> void:
 		_text(font_ui, Vector2(0, 250 + i * 52), ("> " if sel else "") + items[i], HORIZONTAL_ALIGNMENT_CENTER, vs.x, 36 if sel else 30, c, 6)
 	var col1 = [
 		"CONTROLLER (Xbox / PlayStation / Switch)",
-		"Left stick / D-pad: move",
+		"Left stick: walk (tilt) / dash (flick)",
 		"A: attack    B: special",
 		"X / Y: jump",
 		"Right stick: smash attacks (air: aerials)",
@@ -215,18 +222,18 @@ func _draw_pause(vs: Vector2) -> void:
 		"RB: throw ball / recall ball",
 		"RT: shield (tap = parry)   LT: grab",
 		"LB: BURST when the meter is full",
-		"Start: pause",
+		"Start: pause    Back/Select: CPU / sandbag",
 	]
 	var col2 = [
 		"KEYBOARD",
-		"WASD: move",
+		"WASD: move (tap = dash)",
 		"J: attack    K: special",
 		"Space: jump",
 		"H + direction + J: smash attack",
 		"L: throw ball / recall ball",
 		"Shift or ;: shield    U: grab",
 		"O: BURST",
-		"Esc: pause    F11: fullscreen",
+		"Esc: pause  F2: CPU/sandbag  F11: fullscreen",
 		"2nd keyboard player: arrows + numpad",
 	]
 	var tips = [
@@ -239,6 +246,19 @@ func _draw_pause(vs: Vector2) -> void:
 		_text(font_ui, Vector2(vs.x * 0.5 + 60, 520 + i * 32), col2[i], HORIZONTAL_ALIGNMENT_LEFT, 600, 24 if i == 0 else 21, Color("8fd3ff") if i == 0 else Color(1, 1, 1, 0.85))
 	for i in tips.size():
 		_text(font_ui, Vector2(0, 880 + i * 30), tips[i], HORIZONTAL_ALIGNMENT_CENTER, vs.x, 20, Color("ffd166", 0.9))
+	# Controller status, so it's obvious whether the game sees your pad
+	var pads := Input.get_connected_joypads()
+	var line := "Controllers detected: none"
+	if not pads.is_empty():
+		var names := []
+		for j in pads:
+			var nm := Input.get_joy_name(j)
+			var slot := InputRouter.slots.find("joy%d" % j)
+			names.append("%s%s" % [nm if nm != "" else "Gamepad", " (P%d)" % (slot + 1) if slot >= 0 else ""])
+		line = "Controllers detected: " + ", ".join(names)
+	_text(font_ui, Vector2(0, 990), line, HORIZONTAL_ALIGNMENT_CENTER, vs.x, 22, Color("8fd3ff"))
+	if pads.is_empty():
+		_text(font_ui, Vector2(0, 1022), "Steam Controller? Launch the game through Steam (Add a Non-Steam Game) so Steam turns it into a gamepad.", HORIZONTAL_ALIGNMENT_CENTER, vs.x, 20, Color(1, 1, 1, 0.7))
 
 func _draw_game_over(vs: Vector2) -> void:
 	var sim: GameSim = m.sim

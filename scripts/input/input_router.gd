@@ -22,13 +22,13 @@ const KB1 := {
 	"left": [KEY_A], "right": [KEY_D], "up": [KEY_W], "down": [KEY_S],
 	"attack": [KEY_J], "special": [KEY_K], "jump": [KEY_SPACE], "ball": [KEY_L],
 	"shield": [KEY_SHIFT, KEY_SEMICOLON], "grab": [KEY_U], "burst": [KEY_O], "smash": [KEY_H],
-	"start": [KEY_ESCAPE, KEY_ENTER],
+	"start": [KEY_ESCAPE], "back": [KEY_F2],
 }
 const KB2 := {
 	"left": [KEY_LEFT], "right": [KEY_RIGHT], "up": [KEY_UP], "down": [KEY_DOWN],
 	"attack": [KEY_KP_1, KEY_COMMA], "special": [KEY_KP_2, KEY_PERIOD], "jump": [KEY_KP_0, KEY_CTRL],
 	"ball": [KEY_KP_3, KEY_SLASH], "shield": [KEY_KP_ENTER, KEY_ALT], "grab": [KEY_KP_4, KEY_M],
-	"burst": [KEY_KP_6, KEY_N], "smash": [KEY_KP_5, KEY_B], "start": [KEY_KP_ADD, KEY_BACKSPACE],
+	"burst": [KEY_KP_6, KEY_N], "smash": [KEY_KP_5, KEY_B], "start": [KEY_KP_ADD, KEY_BACKSPACE], "back": [KEY_KP_SUBTRACT],
 }
 
 func _ready() -> void:
@@ -95,11 +95,47 @@ func bits_for_slot(slot: int) -> int:
 		return 0
 	return bits(d)
 
-## Full input for a device, with smash-flick detection layered on top.
+var _xhist := {}
+var _dash_prev := {}  # device -> direction of the last reported dash
+var _kb_prev_dir := {}
+
+## Full input for a device, with smash-flick and dash detection layered on top.
 func bits(d: String) -> int:
 	var raw := _raw(d)
+	if d == "kb1" or d == "kb2":
+		# Keyboard: tapping a direction dashes (like a full stick flick).
+		var pd: int = _kb_prev_dir.get(d, 0)
+		var dirs := raw & (Inp.LEFT | Inp.RIGHT)
+		if dirs & ~pd:
+			raw |= Inp.DASH
+		_kb_prev_dir[d] = dirs
 	if d.begins_with("joy"):
 		var j := int(d.substr(3))
+		var lx := Input.get_joy_axis(j, JOY_AXIS_LEFT_X)
+		var dpad_x := Input.is_joy_button_pressed(j, JOY_BUTTON_DPAD_LEFT) or Input.is_joy_button_pressed(j, JOY_BUTTON_DPAD_RIGHT)
+		var xh: Array = _xhist.get(d, [0.0, 0.0, 0.0])
+		if dpad_x:
+			lx = -1.0 if Input.is_joy_button_pressed(j, JOY_BUTTON_DPAD_LEFT) else 1.0
+		# Dash: stick pushed hard sideways quickly (from near-center or the other side)
+		if absf(lx) > 0.8:
+			for old in xh:
+				if absf(old) < 0.35 or signf(old) == -signf(lx):
+					raw |= Inp.DASH
+					break
+		elif absf(lx) > DEADZONE and absf(lx) < 0.75:
+			raw |= Inp.WALK_SLOW
+		# Only report a dash once per flick (same direction), so holding the
+		# stick doesn't re-dash; flicking the other way always does (dash dance).
+		var ds := signf(lx) if absf(lx) > 0.8 else 0.0
+		if raw & Inp.DASH:
+			if _dash_prev.get(d, 0.0) == ds:
+				raw &= ~Inp.DASH
+			_dash_prev[d] = ds
+		elif ds == 0.0:
+			_dash_prev[d] = 0.0
+		xh.push_front(lx)
+		xh.resize(3)
+		_xhist[d] = xh
 		var v := Vector2(Input.get_joy_axis(j, JOY_AXIS_LEFT_X), Input.get_joy_axis(j, JOY_AXIS_LEFT_Y))
 		var mag := v.length()
 		var hist: Array = _prev_mag.get(d, [0.0, 0.0, 0.0])
@@ -151,6 +187,7 @@ func _raw(d: String) -> int:
 		if _keys(m, "burst"): b |= Inp.BURST
 		if _keys(m, "smash"): b |= Inp.SMASH
 		if _keys(m, "start"): b |= Inp.START
+		if _keys(m, "back"): b |= Inp.BACK
 		if (b & Inp.LEFT) and (b & Inp.RIGHT): b &= ~(Inp.LEFT | Inp.RIGHT)
 		if (b & Inp.UP) and (b & Inp.DOWN): b &= ~(Inp.UP | Inp.DOWN)
 		return b
@@ -182,10 +219,9 @@ func _raw(d: String) -> int:
 	if Input.get_joy_axis(j, JOY_AXIS_TRIGGER_RIGHT) > TRIGGER: b |= Inp.SHIELD
 	if Input.get_joy_axis(j, JOY_AXIS_TRIGGER_LEFT) > TRIGGER: b |= Inp.GRAB
 	if Input.is_joy_button_pressed(j, JOY_BUTTON_START): b |= Inp.START
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_BACK): b |= Inp.START << 1
+	if Input.is_joy_button_pressed(j, JOY_BUTTON_BACK): b |= Inp.BACK
 	return b
 
-const BACK_BIT := Inp.START << 1
 
 func rumble(slot: int, weak: float, strong: float, dur: float) -> void:
 	if slot < 0 or slot >= MAX_SLOTS:

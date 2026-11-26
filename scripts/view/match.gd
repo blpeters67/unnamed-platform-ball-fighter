@@ -5,7 +5,7 @@ extends Node2D
 
 const U := FX.U
 const STYLE_GRADES := [[0, "D"], [350, "C"], [800, "B"], [1500, "A"], [2500, "S"], [3800, "SS"], [5500, "SSS"]]
-const DUMMY_MODES := ["DUMMY: STAND", "DUMMY: ESCAPE ARTIST", "DUMMY: SHIELD", "CPU OPPONENT"]
+const DUMMY_MODES := ["SANDBAG (stands still)", "DUMMY: DI, TECH & BURST", "DUMMY: SHIELDS", "CPU OPPONENT"]
 
 var sim = GameSim.new()
 var cam = Camera2D.new()
@@ -115,6 +115,13 @@ func _menu_input(b0: int, b1: int) -> bool:
 			Sfx.play("select")
 			restart()
 		return true
+	if (press & Inp.BACK) and not paused:
+		# Back / Select / F2: flip P2 between the CPU and a sandbag.
+		if p2_is_dummy():
+			dummy_mode = 0 if dummy_mode == 3 else 3
+			Sfx.play("select")
+			popup_screen("P2: " + DUMMY_MODES[dummy_mode], Color.WHITE, 40)
+		return false
 	if press & Inp.START:
 		paused = not paused
 		pause_sel = 0
@@ -146,9 +153,6 @@ func _unhandled_input(ev: InputEvent) -> void:
 		if ev.physical_keycode == KEY_F11 or (ev.physical_keycode == KEY_ENTER and ev.alt_pressed):
 			var w = get_window()
 			w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
-		elif ev.physical_keycode == KEY_F2:
-			dummy_mode = (dummy_mode + 1) % DUMMY_MODES.size()
-			popup_screen("Dummy: " + DUMMY_MODES[dummy_mode], Color.WHITE)
 		elif ev.physical_keycode == KEY_F5:
 			restart()
 
@@ -302,6 +306,18 @@ func _on_event(e: Dictionary) -> void:
 			Sfx.play("land", 0.7)
 			_dust(p, 10)
 			shake += 0.12
+		"grapple":
+			Sfx.play("hook", 1.4)
+			_ring(p, 10, 60, pal(e.id).visor, 12, 4)
+			popup_world(p + Vector2(0, -30), "GRAPPLE!", pal(e.id).visor, 28)
+		"charge":
+			Sfx.play("catch", 1.5, -14.0)
+		"ledge":
+			Sfx.play("grab", 1.4, -6.0)
+			_ring(p, 6, 40, Color(1, 1, 1, 0.7), 10, 3)
+		"dash":
+			Sfx.play("swing", 1.5, -10.0)
+			_dust(p, 2)
 		"jump", "djump":
 			Sfx.play("jump", 1.0 if e.t == "jump" else 1.3, -6.0)
 			_dust(p, 4 if e.t == "jump" else 0)
@@ -394,7 +410,14 @@ func _on_hit(e: Dictionary, p: Vector2) -> void:
 		feed.resize(6)
 	cu["feed"] = feed
 
+func training() -> bool:
+	return p2_is_dummy() and dummy_mode != 3
+
 func _on_ko(e: Dictionary, p: Vector2) -> void:
+	if training():
+		# Training: nobody runs out of stocks, so you can keep practicing.
+		sim.st.f[e.id].stocks += 1
+		sim.st.winner = -1
 	Sfx.play("ko")
 	var killer: int = 1 - e.id
 	var col: Color = pal(killer).glow
@@ -696,7 +719,7 @@ func _draw_fighter(f: Dictionary, sil: bool) -> void:
 		draw_string(hud.font_ui, tp + Vector2(-30, 4), tag, HORIZONTAL_ALIGNMENT_CENTER, 60, 22, pl.main)
 
 func _draw_ball_tether(b: Dictionary) -> void:
-	if b.st != GameSim.B_HOOK:
+	if b.st != GameSim.B_HOOK and b.st != GameSim.B_GRAPPLE:
 		return
 	var o: Dictionary = sim.st.f[b.owner]
 	var a = w(o.x, o.y - 50 * U)

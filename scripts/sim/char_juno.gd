@@ -8,7 +8,12 @@ const NAME := "JUNO"
 const TITLE := "the Courier"
 
 # Physics (sim units: px*100)
-const WALK := 650
+const WALK := 560
+const WALK_SLOW := 280
+const DASH_SPEED := 1050
+const RUN_SPEED := 920
+const DASH_FRAMES := 11
+const SKID_FRAMES := 9
 const WALK_ACCEL := 140
 const GROUND_FRICTION := 90
 const AIR_SPEED := 600
@@ -17,9 +22,9 @@ const AIR_FRICTION := 12
 const GRAVITY := 62
 const MAX_FALL := 1150
 const FAST_FALL := 1750
-const FULL_HOP := -1450
-const SHORT_HOP := -980
-const DOUBLE_JUMP := -1350
+const FULL_HOP := -1560
+const SHORT_HOP := -1020
+const DOUBLE_JUMP := -1620
 const JUMPSQUAT := 3
 const EXTRA_JUMPS := 1
 
@@ -80,8 +85,8 @@ static func _build() -> Dictionary:
 	m["sspecial"] = {"name": "Dash Strike", "type": "special", "len": 38, "air_once": true,
 		"nograv": [3, 16], "vel": [[1, 5, 0, 0], [6, 16, 1600, 0], [17, 38, 300, null]],
 		"hb": [hb(6, 16, 34, -48, 32, 9, 32, 760, 640)]}
-	m["uspecial"] = {"name": "Comet Rise", "type": "special", "len": 34, "helpless": true, "landlag": 14,
-		"drift": 320, "air_once": true, "vel": [[1, 4, 0, 0], [5, 5, null, -1750]],
+	m["uspecial"] = {"name": "Comet Rise", "type": "special", "len": 36, "helpless": true, "landlag": 14,
+		"drift": 560, "air_once": true, "nograv": [5, 14], "vel": [[1, 4, null, 0], [5, 14, null, -1550]],
 		"hb": [hb(5, 6, 0, -60, 38, 3, 90, 470, 0, 0, true), hb(9, 10, 0, -60, 38, 3, 90, 470, 0, 1, true),
 			hb(13, 14, 0, -62, 38, 3, 90, 470, 0, 2, true), hb(18, 20, 0, -70, 42, 6, 80, 820, 780, 3)]}
 	m["dspecial"] = {"name": "Meteor Stomp", "type": "special", "len": 36,
@@ -98,6 +103,8 @@ static func _build() -> Dictionary:
 	m["bthrow"] = {"name": "Back Throw", "type": "throw", "len": 30, "throw": {"f": 11, "d": 10, "a": 140, "kb": 820, "kg": 880, "swap": true}}
 	m["uthrow"] = {"name": "Up Throw", "type": "throw", "len": 28, "throw": {"f": 9, "d": 7, "a": 90, "kb": 760, "kg": 440}}
 	m["dthrow"] = {"name": "Down Throw", "type": "throw", "len": 30, "throw": {"f": 12, "d": 6, "a": 74, "kb": 560, "kg": 330}}
+	m["ledge_attack"] = {"name": "Ledge Attack", "type": "tilt", "len": 30,
+		"hb": [hb(6, 9, 50, -30, 36, 7, 40, 750, 400)]}
 	# ---------------- The ball ----------------
 	m["ball_throw"] = {"name": "Comet Toss", "type": "ball", "len": 18, "landlag": 4, "ball_release": 5}
 	return m

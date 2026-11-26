@@ -6,8 +6,9 @@ extends RefCounted
 
 enum { S_IDLE, S_WALK, S_JUMPSQUAT, S_AIR, S_LAND, S_ATTACK, S_HITSTUN, S_HOOKED,
 	S_GRABBED, S_GRAB_HOLD, S_KNOCKDOWN, S_GETUP, S_TECH, S_SHIELD, S_SHIELDSTUN,
-	S_ROLL, S_SPOTDODGE, S_AIRDODGE, S_HELPLESS, S_BURST, S_SHIELDBREAK, S_DEAD, S_RESPAWN }
-enum { B_HELD, B_OUT, B_RETURN, B_HOOK, B_DEAD }
+	S_ROLL, S_SPOTDODGE, S_AIRDODGE, S_HELPLESS, S_BURST, S_SHIELDBREAK, S_DEAD, S_RESPAWN,
+	S_DASH, S_RUN, S_SKID, S_LEDGE, S_LEDGE_GETUP, S_GRAPPLE }
+enum { B_HELD, B_OUT, B_RETURN, B_HOOK, B_DEAD, B_GRAPPLE }
 
 const U := FX.U
 
@@ -23,6 +24,8 @@ const STALE_W := [90, 80, 70, 60, 50, 40, 30, 20, 10]
 const VARIETY_WINDOW := 8
 const BURST_MAX := 1000
 const BALL_R := 20
+const BALL_CHARGES := 3
+const CHARGE_FRAMES := 180   # one ball charge back every 3 seconds
 
 var st: Dictionary
 var events: Array = []
@@ -57,7 +60,9 @@ func _new_fighter(id: int, stocks: int) -> Dictionary:
 		"burst": 250, "combo": 0, "combo_dmg": 0, "combo_moves": [], "style": 0, "shield": 1000,
 		"inv": 0, "tumble": false, "airdodged": false, "air_used": 0, "drop": 0, "prev": 0, "inp": 0,
 		"buf": buf, "tech_age": 99, "landlag": 0, "partner": -1, "grab_t": 0, "mash": 0,
-		"stale": [], "respawn": 0, "ff": false, "dir": 0, "kos": 0, "best_combo": 0}
+		"stale": [], "respawn": 0, "ff": false, "dir": 0, "kos": 0, "best_combo": 0,
+		"ledge_cd": 0, "ledge_grabs": 0, "ledge_side": 0, "ledge_opt": 0,
+		"charges": BALL_CHARGES, "charge_t": 0, "burst_safe": false}
 
 func _new_ball(owner: int) -> Dictionary:
 	return {"owner": owner, "st": B_HELD, "x": 0, "y": 0, "vx": 0, "vy": 0, "dx": 0, "dy": 0,
@@ -138,6 +143,7 @@ func is_invuln(f: Dictionary) -> bool:
 		S_SPOTDODGE: return t >= 2 and t <= 16
 		S_AIRDODGE: return t >= 3 and t <= 18
 		S_TECH: return t <= 20
+		S_LEDGE_GETUP: return t <= 22
 		S_GETUP: return t <= 20
 		S_BURST: return t <= 22
 		S_DEAD, S_RESPAWN: return true
@@ -161,6 +167,12 @@ func _update_fighter(f: Dictionary) -> void:
 	_try_recall(f)
 	match f.state:
 		S_IDLE, S_WALK: _st_ground_neutral(f)
+		S_DASH: _st_dash(f)
+		S_RUN: _st_run(f)
+		S_SKID: _st_skid(f)
+		S_LEDGE: _st_ledge(f)
+		S_LEDGE_GETUP: _st_ledge_getup(f)
+		S_GRAPPLE: _st_grapple(f)
 		S_JUMPSQUAT: _st_jumpsquat(f)
 		S_AIR: _st_air(f)
 		S_LAND: _st_land(f)
@@ -182,20 +194,36 @@ func _update_fighter(f: Dictionary) -> void:
 		S_SHIELDBREAK: _st_shieldbreak(f)
 		S_DEAD: _st_dead(f)
 		S_RESPAWN: _st_respawn(f)
-	if not (f.state in [S_HOOKED, S_GRABBED, S_DEAD, S_RESPAWN]):
+	if f.ledge_cd > 0:
+		f.ledge_cd -= 1
+	if f.charges < BALL_CHARGES:
+		f.charge_t += 1
+		if f.charge_t >= CHARGE_FRAMES:
+			f.charge_t = 0
+			f.charges += 1
+			events.append({"t": "charge", "id": f.id, "x": f.x, "y": f.y})
+	else:
+		f.charge_t = 0
+	if not (f.state in [S_HOOKED, S_GRABBED, S_DEAD, S_RESPAWN, S_LEDGE, S_LEDGE_GETUP, S_GRAPPLE]):
 		_move_and_collide(f)
+		_try_ledge_grab(f)
 
 # ---------------- Neutral ground ----------------
 func _st_ground_neutral(f: Dictionary) -> void:
 	if _ground_actions(f):
 		return
 	var sx := Inp.sx(f.inp)
+	if sx != 0 and _buffered(f, Inp.DASH):
+		_consume(f, Inp.DASH)
+		_start_dash(f, sx)
+		return
 	if sx != 0:
 		if f.state != S_WALK:
 			f.state = S_WALK
 			f.sf = 0
 		f.face = sx
-		f.vx = FX.approach(f.vx, sx * CharJuno.WALK, CharJuno.WALK_ACCEL)
+		var spd: int = CharJuno.WALK_SLOW if _held(f, Inp.WALK_SLOW) else CharJuno.WALK
+		f.vx = FX.approach(f.vx, sx * spd, CharJuno.WALK_ACCEL)
 	else:
 		if f.state != S_IDLE:
 			f.state = S_IDLE
@@ -205,7 +233,7 @@ func _st_ground_neutral(f: Dictionary) -> void:
 ## Returns true if the fighter started an action.
 func _ground_actions(f: Dictionary) -> bool:
 	var ball: Dictionary = st.b[f.id]
-	if _buffered(f, Inp.BALL) and ball.st == B_HELD and ball.cd == 0:
+	if _buffered(f, Inp.BALL) and ball.st == B_HELD and ball.cd == 0 and f.charges > 0:
 		_consume(f, Inp.BALL)
 		_start_move(f, "ball_throw")
 		return true
@@ -249,7 +277,7 @@ func _ground_actions(f: Dictionary) -> bool:
 			f.face = sx
 			if smash:
 				_start_move(f, "fsmash")
-			elif f.state == S_WALK and f.sf > 10 and absi(f.vx) >= CharJuno.WALK * 9 / 10:
+			elif (f.state == S_DASH or f.state == S_RUN) and sx == f.face:
 				_start_move(f, "dash")
 			else:
 				_start_move(f, "ftilt")
@@ -298,6 +326,217 @@ func _start_move(f: Dictionary, id: String) -> void:
 	if f.ground and (t == "jab" or t == "tilt" or t == "smash" or t == "grab") and id != "dash":
 		f.vx = f.vx / 3
 
+# ---------------- Dash / run / dash dance ----------------
+func _start_dash(f: Dictionary, dir: int) -> void:
+	_set_state(f, S_DASH)
+	f.face = dir
+	f.vx = dir * CharJuno.DASH_SPEED
+	events.append({"t": "dash", "id": f.id, "x": f.x, "y": f.y})
+
+func _st_dash(f: Dictionary) -> void:
+	var sx := Inp.sx(f.inp)
+	# Dash dance: flick the other way during the initial dash
+	if sx == -f.face and (_buffered(f, Inp.DASH) or not _held(f, Inp.WALK_SLOW)):
+		_consume(f, Inp.DASH)
+		_start_dash(f, sx)
+		return
+	if _ground_actions(f):
+		return
+	f.vx = f.face * CharJuno.DASH_SPEED
+	if f.sf >= CharJuno.DASH_FRAMES:
+		if sx == f.face:
+			_set_state(f, S_RUN)
+		else:
+			_set_state(f, S_SKID)
+
+func _st_run(f: Dictionary) -> void:
+	if _ground_actions(f):
+		return
+	var sx := Inp.sx(f.inp)
+	if sx != f.face:
+		_set_state(f, S_SKID)
+		f.dir = sx
+		return
+	f.vx = FX.approach(f.vx, f.face * CharJuno.RUN_SPEED, 80)
+
+func _st_skid(f: Dictionary) -> void:
+	f.vx = FX.approach0(f.vx, CharJuno.GROUND_FRICTION + 30)
+	if _buffered(f, Inp.JUMP):
+		_consume(f, Inp.JUMP)
+		_set_state(f, S_JUMPSQUAT)
+		return
+	if f.sf >= CharJuno.SKID_FRAMES:
+		if f.dir != 0 and Inp.sx(f.inp) == f.dir:
+			f.face = f.dir
+		f.dir = 0
+		_set_state(f, S_IDLE)
+		_ground_actions(f)
+
+# ---------------- Ball grapple ----------------
+## A thrown ball that touches a ledge corner while its owner is airborne
+## latches on and reels the owner in to hang from that ledge.
+func _ball_grapple_check(b: Dictionary) -> void:
+	if b.st != B_OUT:
+		return
+	var o: Dictionary = st.f[b.owner]
+	if o.ground or not (o.state in [S_AIR, S_HELPLESS, S_ATTACK, S_AIRDODGE]):
+		return
+	for side in [-1, 1]:
+		var ex: int = (StageHalo.MAIN_X0 if side < 0 else StageHalo.MAIN_X1) * U
+		var ey: int = StageHalo.MAIN_Y * U
+		var dx: int = (b.x - ex) / U
+		var dy: int = (b.y - ey) / U
+		if dx * dx + dy * dy > 48 * 48:
+			continue
+		# Only when the owner is out past this edge (recovering), not on stage.
+		if (o.x - ex) * side < -20 * U:
+			continue
+		var other := _other(o)
+		if other.state == S_LEDGE and other.ledge_side == side:
+			continue
+		b.st = B_GRAPPLE
+		b.x = ex
+		b.y = ey
+		b.t = 0
+		_set_state(o, S_GRAPPLE)
+		o.ledge_side = side
+		o.vx = 0
+		o.vy = 0
+		events.append({"t": "grapple", "id": o.id, "x": ex, "y": ey})
+		return
+
+func _st_grapple(f: Dictionary) -> void:
+	var side: int = f.ledge_side
+	var ex: int = (StageHalo.MAIN_X0 if side < 0 else StageHalo.MAIN_X1) * U
+	var tx: int = ex + side * 30 * U
+	var ty: int = StageHalo.MAIN_Y * U + LEDGE_HANG_Y * U
+	var dx: int = tx - f.x
+	var dy: int = ty - f.y
+	var dist := FX.isqrt(dx * dx + dy * dy)
+	var spd := 2400
+	if dist <= spd or f.sf > 60:
+		f.x = tx
+		f.y = ty
+		var b: Dictionary = st.b[f.id]
+		b.st = B_HELD
+		b.cd = 10
+		b.hit = false
+		_ball_to_hand(b)
+		_set_state(f, S_LEDGE)
+		f.face = -side
+		f.ground = false
+		f.jumps = CharJuno.EXTRA_JUMPS
+		f.air_used = 0
+		f.airdodged = false
+		f.inv = maxi(0, 34 - f.ledge_grabs * 14)
+		f.ledge_grabs += 1
+		events.append({"t": "ledge", "id": f.id, "x": ex, "y": StageHalo.MAIN_Y * U})
+		return
+	f.vx = dx * spd / dist
+	f.vy = dy * spd / dist
+	f.x += f.vx
+	f.y += f.vy
+	f.face = -side
+
+# ---------------- Ledges ----------------
+const LEDGE_REACH_X := 46   # px outside the stage edge the hands can reach
+const LEDGE_HANG_Y := 86    # px below the ledge the feet hang
+const LEDGE_MAX_HANG := 300
+
+func _try_ledge_grab(f: Dictionary) -> void:
+	if f.ground or f.ledge_cd > 0 or f.vy < 0:
+		return
+	var ok_state: bool = f.state == S_AIR or f.state == S_HELPLESS or f.state == S_AIRDODGE
+	if f.state == S_ATTACK:
+		var mv: Dictionary = moves[f.move]
+		ok_state = mv.get("helpless", false) or mv.type == "special"
+	if not ok_state or _held(f, Inp.DOWN):
+		return
+	for side in [-1, 1]:
+		var ex: int = (StageHalo.MAIN_X0 if side < 0 else StageHalo.MAIN_X1) * U
+		var dx: int = (f.x - ex) * side   # positive = outside the stage
+		var dy: int = f.y - StageHalo.MAIN_Y * U
+		if dx >= -10 * U and dx <= LEDGE_REACH_X * U and dy >= 20 * U and dy <= 125 * U:
+			var o := _other(f)
+			if o.state == S_LEDGE and o.ledge_side == side:
+				return
+			_set_state(f, S_LEDGE)
+			f.ledge_side = side
+			f.face = -side
+			f.x = ex + side * 30 * U
+			f.y = StageHalo.MAIN_Y * U + LEDGE_HANG_Y * U
+			f.vx = 0
+			f.vy = 0
+			f.ff = false
+			f.tumble = false
+			f.jumps = CharJuno.EXTRA_JUMPS
+			f.air_used = 0
+			f.airdodged = false
+			# Ledge invincibility shrinks each regrab without touching the stage.
+			f.inv = maxi(0, 34 - f.ledge_grabs * 14)
+			f.ledge_grabs += 1
+			events.append({"t": "ledge", "id": f.id, "x": ex, "y": StageHalo.MAIN_Y * U})
+			return
+
+func _st_ledge(f: Dictionary) -> void:
+	f.vx = 0
+	f.vy = 0
+	var side: int = f.ledge_side
+	if f.sf < 8:
+		return
+	var sx := Inp.sx(f.inp)
+	var toward := sx == -side
+	var away := sx == side
+	if f.sf >= LEDGE_MAX_HANG or _pressed(f, Inp.DOWN) or (away and _pressed(f, Inp.LEFT if side < 0 else Inp.RIGHT)):
+		_ledge_release(f, false)
+		return
+	if _buffered(f, Inp.JUMP) or _pressed(f, Inp.UP):
+		_consume(f, Inp.JUMP)
+		_ledge_release(f, false)
+		f.vy = -1600
+		f.vx = -side * 250
+		events.append({"t": "djump", "id": f.id, "x": f.x, "y": f.y})
+		return
+	if _buffered(f, Inp.ATTACK) or _buffered(f, Inp.SPECIAL):
+		_consume(f, Inp.ATTACK)
+		_consume(f, Inp.SPECIAL)
+		f.ledge_opt = 2
+	elif _buffered(f, Inp.SHIELD):
+		_consume(f, Inp.SHIELD)
+		f.ledge_opt = 1
+	elif toward:
+		f.ledge_opt = 0
+	else:
+		return
+	_set_state(f, S_LEDGE_GETUP)
+
+func _ledge_release(f: Dictionary, _stun: bool) -> void:
+	_set_state(f, S_AIR)
+	f.ledge_cd = 30
+	f.x += f.ledge_side * 10 * U
+
+func _st_ledge_getup(f: Dictionary) -> void:
+	var side: int = f.ledge_side
+	var ex: int = (StageHalo.MAIN_X0 if side < 0 else StageHalo.MAIN_X1) * U
+	if f.sf <= 12:
+		var k: int = f.sf
+		f.x = ex + side * (30 - k * 5) * U
+		f.y = StageHalo.MAIN_Y * U + (LEDGE_HANG_Y - k * LEDGE_HANG_Y / 12) * U
+		return
+	f.y = StageHalo.MAIN_Y * U
+	f.ground = true
+	f.x = ex - side * 30 * U
+	var opt: int = f.ledge_opt
+	if opt == 1:
+		_set_state(f, S_ROLL)
+		f.dir = -side
+		f.inv = 10
+	elif opt == 2:
+		_start_move(f, "ledge_attack")
+	else:
+		_set_state(f, S_IDLE)
+		f.inv = 6
+
 # ---------------- Jumping & air ----------------
 func _st_jumpsquat(f: Dictionary) -> void:
 	f.vx = FX.approach0(f.vx, CharJuno.GROUND_FRICTION / 2)
@@ -315,7 +554,7 @@ func _st_air(f: Dictionary) -> void:
 
 func _air_actions(f: Dictionary) -> bool:
 	var ball: Dictionary = st.b[f.id]
-	if _buffered(f, Inp.BALL) and ball.st == B_HELD and ball.cd == 0:
+	if _buffered(f, Inp.BALL) and ball.st == B_HELD and ball.cd == 0 and f.charges > 0:
 		_consume(f, Inp.BALL)
 		f.tumble = false
 		_start_move(f, "ball_throw")
@@ -467,8 +706,9 @@ func _end_move(f: Dictionary) -> void:
 # ---------------- Ball ----------------
 func _throw_ball(f: Dictionary) -> void:
 	var b: Dictionary = st.b[f.id]
-	if b.st != B_HELD:
+	if b.st != B_HELD or f.charges <= 0:
 		return
+	f.charges -= 1
 	var sx := Inp.sx(f.inp)
 	var sy := Inp.sy_up(f.inp)
 	if sx == 0 and sy == 0:
@@ -544,6 +784,12 @@ func _update_ball(b: Dictionary) -> void:
 				b.st = B_RETURN
 				b.spd = 300
 			_ball_hit_check(b)
+			_ball_grapple_check(b)
+		B_GRAPPLE:
+			b.t += 1
+			if o.state != S_GRAPPLE:
+				b.st = B_RETURN
+				b.spd = 1500
 		B_RETURN:
 			b.t += 1
 			var tx: int = o.x + o.face * 28 * U
@@ -664,12 +910,12 @@ func _release_hook(b: Dictionary, with_stun: bool) -> void:
 				if m == "ball":
 					hooks += 1
 			# Hooking the same victim over and over in one combo stales hard.
-			var stun := 42
+			var stun := 46
 			for i in maxi(0, hooks - 1):
-				stun = stun * 70 / 100
+				stun = stun * 82 / 100
 			stun = stun * maxi(600, 1000 - 12 * v.combo) / 1000
 			_set_state(v, S_HITSTUN)
-			v.hitstun = maxi(8, stun)
+			v.hitstun = maxi(14, stun)
 			v.vx = o.face * 120
 			v.vy = -560
 			v.face = -o.face
@@ -1016,13 +1262,14 @@ func _move_and_collide(f: Dictionary) -> void:
 
 func _on_leave_ground(f: Dictionary) -> void:
 	match f.state:
-		S_IDLE, S_WALK, S_LAND, S_SHIELD, S_SHIELDSTUN, S_ROLL, S_SPOTDODGE, S_KNOCKDOWN, S_GETUP, S_TECH, S_JUMPSQUAT:
+		S_IDLE, S_WALK, S_LAND, S_SHIELD, S_SHIELDSTUN, S_ROLL, S_SPOTDODGE, S_KNOCKDOWN, S_GETUP, S_TECH, S_JUMPSQUAT, S_DASH, S_RUN, S_SKID:
 			_set_state(f, S_AIR)
 			f.tumble = false
 
 func _on_land(f: Dictionary) -> void:
 	f.ground = true
 	f.vy = 0
+	f.ledge_grabs = 0
 	f.jumps = CharJuno.EXTRA_JUMPS
 	f.airdodged = false
 	f.air_used = 0
@@ -1071,6 +1318,9 @@ func _tumble_land(f: Dictionary) -> void:
 func _check_blast(f: Dictionary) -> void:
 	if f.state == S_DEAD or f.state == S_RESPAWN:
 		return
+	if f.burst_safe and f.state == S_HITSTUN:
+		return
+	f.burst_safe = false
 	var out: bool = absi(f.x) > StageHalo.BLAST_X * U or f.y > StageHalo.BLAST_BOTTOM * U
 	if f.y < StageHalo.BLAST_TOP * U and (f.state == S_HITSTUN or f.y < (StageHalo.BLAST_TOP - 200) * U):
 		out = true
@@ -1235,6 +1485,7 @@ func _apply_hit(a: Dictionary, v: Dictionary, h: Dictionary, move_id: String, is
 		return
 	# ---- Real hit ----
 	var info := _combo_hit(a, v, move_id, d * 10, mtype)
+	v.burst_safe = false
 	var p: int = v.pct / 10
 	var kb: int = int(h.kb)
 	if not h.fixed:
@@ -1260,7 +1511,12 @@ func _apply_hit(a: Dictionary, v: Dictionary, h: Dictionary, move_id: String, is
 		elif cross < 0:
 			world_a -= 14
 	# Hitstun with combo decay and variety reward/penalty
-	var hs: int = 14 + kb * 26 / 1000
+	# Generous hitstun for combo hits, but big launches don't lock you out
+	# of recovering: above ~12 px/f the curve flattens and caps.
+	var hs: int = 16 + kb * 28 / 1000
+	if kb > 1200:
+		hs = 45 + (kb - 1200) * 9 / 1000
+	hs = mini(hs, 56)
 	var stun_pm: int = maxi(600, 1000 - 12 * v.combo)
 	if info.in_combo:
 		if info.fresh:
@@ -1323,13 +1579,15 @@ func _apply_burst_hit(a: Dictionary, v: Dictionary) -> void:
 		_check_shield_break(v)
 		return
 	_release_own_hook(v)
-	var kb: int = 2300 + v.pct
+	# Fixed push, no percent scaling: burst gets them off you, it never kills.
+	var kb := 1500
 	_set_state(v, S_HITSTUN)
-	v.hitstun = 34
+	v.hitstun = 30
 	v.vx = dx * kb / dist
-	v.vy = mini(-900, dy * kb / dist)
+	v.vy = mini(-700, dy * kb / dist)
 	v.ground = false
-	v.tumble = true
+	v.tumble = false
+	v.burst_safe = true
 	a.hitlag = 9
 	v.hitlag = 9
 	events.append({"t": "bursthit", "a": a.id, "v": v.id, "x": v.x, "y": v.y - 46 * U})

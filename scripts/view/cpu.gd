@@ -20,6 +20,7 @@ func _init(seed_v: int = 0) -> void:
 		rng.seed = seed_v
 
 func think(sim: GameSim, id: int) -> int:
+	_sim_ref = sim
 	var me: Dictionary = sim.st.f[id]
 	var op: Dictionary = sim.st.f[1 - id]
 	var s: int = me.state
@@ -33,6 +34,12 @@ func think(sim: GameSim, id: int) -> int:
 		return 0
 	if s == GameSim.S_RESPAWN:
 		return Inp.DOWN if me.sf > 40 and rng.randf() < 0.1 else 0
+	if s == GameSim.S_LEDGE:
+		queue.clear()
+		if me.sf < 10 + rng.randi() % 30:
+			return 0
+		var toward_c := Inp.LEFT if me.ledge_side > 0 else Inp.RIGHT
+		return [toward_c, Inp.JUMP, Inp.ATTACK, Inp.SHIELD][rng.randi() % 4]
 	if not queue.is_empty():
 		return queue.pop_front()
 	# ---- Recovery ----
@@ -47,7 +54,7 @@ func think(sim: GameSim, id: int) -> int:
 	var toward := Inp.RIGHT if dx > 0 else Inp.LEFT
 	var away := Inp.LEFT if dx > 0 else Inp.RIGHT
 	var ball: Dictionary = sim.st.b[id]
-	var ball_ready: bool = ball.st == GameSim.B_HELD and ball.cd == 0
+	var ball_ready: bool = ball.st == GameSim.B_HELD and ball.cd == 0 and me.charges > 0
 	var actionable: bool = s in [GameSim.S_IDLE, GameSim.S_WALK, GameSim.S_AIR, GameSim.S_LAND]
 	# ---- Offense: the opponent is in a combo state, extend it ----
 	if _look_cd > 0:
@@ -108,6 +115,8 @@ func think(sim: GameSim, id: int) -> int:
 			return _press(Inp.BALL | toward | up, toward)
 		if r < 0.03:
 			return _jump_aerial(toward, Inp.ATTACK | toward)
+		if s == GameSim.S_IDLE or s == GameSim.S_WALK:
+			return toward | Inp.DASH
 		return toward
 	if adx > 110:
 		if r < 0.05:
@@ -149,8 +158,14 @@ func _jump_aerial(dir: int, atk: int) -> int:
 func _toward_center(me: Dictionary) -> int:
 	return Inp.LEFT if me.x > 0 else Inp.RIGHT
 
+var _sim_ref: GameSim = null
+
 func _recover(me: Dictionary) -> int:
 	var dir := _toward_center(me)
+	# Grapple: toss the ball at the ledge when far below/out
+	if _sim_ref != null and me.charges > 0 and me.y > 60 * U and _sim_ref.st.b[me.id].st == GameSim.B_HELD and rng.randf() < 0.25:
+		queue = [dir | Inp.UP, dir | Inp.UP, dir | Inp.UP, dir | Inp.UP, dir | Inp.UP, dir | Inp.UP]
+		return Inp.BALL | dir | Inp.UP
 	if me.vy > 0 and me.jumps > 0 and me.y > -60 * U:
 		queue = [dir, dir]
 		return Inp.JUMP | dir
