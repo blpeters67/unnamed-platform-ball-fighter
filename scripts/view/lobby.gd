@@ -83,7 +83,7 @@ func _new_net() -> void:
 	add_child(net)
 	status = ""
 	status_bad = false
-	net.status_changed.connect(func(s): status = s; status_bad = false)
+	net.status_changed.connect(_on_status)
 	net.failed.connect(_on_failed)
 	net.connected.connect(_on_connected)
 
@@ -242,3 +242,9 @@ func _draw_join(vs: Vector2) -> void:
 func _draw_diag() -> void:
 	if net and net.state == NetSession.CONNECTING:
 		_text(font_ui, Vector2(0, 850), net.diag_text(), 20, Color(1, 1, 1, 0.4))
+
+func _on_status(s: String) -> void:
+	status = s
+	status_bad = false
+	if s == "Room ready" and net:
+		DisplayServer.clipboard_set(net.code)   # the code may have changed
