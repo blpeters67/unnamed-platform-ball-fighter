@@ -20,14 +20,14 @@ var _prev_raw := {}
 
 const KB1 := {
 	"left": [KEY_A], "right": [KEY_D], "up": [KEY_W], "down": [KEY_S],
-	"attack": [KEY_J], "special": [KEY_K], "jump": [KEY_SPACE], "ball": [KEY_L],
+	"attack": [KEY_J, KEY_ENTER], "special": [KEY_K], "jump": [KEY_SPACE], "ball": [KEY_L],
 	"shield": [KEY_SHIFT, KEY_SEMICOLON], "grab": [KEY_U], "burst": [KEY_O], "smash": [KEY_H],
 	"start": [KEY_ESCAPE], "back": [KEY_F2],
 }
 const KB2 := {
 	"left": [KEY_LEFT], "right": [KEY_RIGHT], "up": [KEY_UP], "down": [KEY_DOWN],
-	"attack": [KEY_KP_1, KEY_COMMA], "special": [KEY_KP_2, KEY_PERIOD], "jump": [KEY_KP_0, KEY_CTRL],
-	"ball": [KEY_KP_3, KEY_SLASH], "shield": [KEY_KP_ENTER, KEY_ALT], "grab": [KEY_KP_4, KEY_M],
+	"attack": [KEY_KP_1, KEY_COMMA], "special": [KEY_KP_2, KEY_PERIOD], "jump": [KEY_KP_0],
+	"ball": [KEY_KP_3, KEY_SLASH], "shield": [KEY_KP_ENTER], "grab": [KEY_KP_4, KEY_M],
 	"burst": [KEY_KP_6, KEY_N], "smash": [KEY_KP_5, KEY_B], "start": [KEY_KP_ADD, KEY_BACKSPACE], "back": [KEY_KP_SUBTRACT],
 }
 
@@ -174,10 +174,21 @@ func _raw(d: String) -> int:
 	var b := 0
 	if d == "kb1" or d == "kb2":
 		var m: Dictionary = KB1 if d == "kb1" else KB2
-		if _keys(m, "left"): b |= Inp.LEFT
-		if _keys(m, "right"): b |= Inp.RIGHT
-		if _keys(m, "up"): b |= Inp.UP
-		if _keys(m, "down"): b |= Inp.DOWN
+		# The arrow keys belong to the main keyboard player unless a second
+		# keyboard player has joined (from the numpad). Steam's desktop mode
+		# turns a controller's D-pad into arrow keys, so arrows must never
+		# make someone join on their own.
+		var kb2_in := slots.has("kb2")
+		if d == "kb1":
+			if _keys(m, "left") or (not kb2_in and Input.is_physical_key_pressed(KEY_LEFT)): b |= Inp.LEFT
+			if _keys(m, "right") or (not kb2_in and Input.is_physical_key_pressed(KEY_RIGHT)): b |= Inp.RIGHT
+			if _keys(m, "up") or (not kb2_in and Input.is_physical_key_pressed(KEY_UP)): b |= Inp.UP
+			if _keys(m, "down") or (not kb2_in and Input.is_physical_key_pressed(KEY_DOWN)): b |= Inp.DOWN
+		elif kb2_in:
+			if _keys(m, "left"): b |= Inp.LEFT
+			if _keys(m, "right"): b |= Inp.RIGHT
+			if _keys(m, "up"): b |= Inp.UP
+			if _keys(m, "down"): b |= Inp.DOWN
 		if _keys(m, "attack"): b |= Inp.ATTACK
 		if _keys(m, "special"): b |= Inp.SPECIAL
 		if _keys(m, "jump"): b |= Inp.JUMP

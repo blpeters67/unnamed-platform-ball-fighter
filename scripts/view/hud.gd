@@ -226,15 +226,15 @@ func _draw_pause(vs: Vector2) -> void:
 	]
 	var col2 = [
 		"KEYBOARD",
-		"WASD: move (tap = dash)",
-		"J: attack    K: special",
+		"WASD or arrows: move (tap = dash)",
+		"J or Enter: attack    K: special",
 		"Space: jump",
 		"H + direction + J: smash attack",
 		"L: throw ball / recall ball",
 		"Shift or ;: shield    U: grab",
 		"O: BURST",
 		"Esc: pause  F2: CPU/sandbag  F11: fullscreen",
-		"2nd keyboard player: arrows + numpad",
+		"2nd keyboard player: press numpad 1 to join",
 	]
 	var tips = [
 		"THE BALL: throw it past or at your opponent. It hooks them and drags them back to you.",
