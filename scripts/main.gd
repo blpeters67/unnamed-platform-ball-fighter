@@ -37,8 +37,14 @@ func _ready() -> void:
 				var bits := a.substr(11).split(":")
 				var l = current.get_child(0)
 				if bits.size() > 1:
-					l.sel = 1 if bits[1] == "host" else 2
-					l._main_input(InputRouter.M_OK)
+					var scr := {"arenas": l.ARENAS, "private": l.PRIVATE, "host": l.HOST, "join": l.JOIN, "settings": l.SETTINGS,
+						"controls": l.CONTROLS, "css": l.CSS, "sss": l.SSS, "name": l.NAME}
+					if bits[1] == "host":
+						l._start_host(true)
+					elif bits[1] == "join":
+						l._start_join_screen()
+					else:
+						l._go(scr[bits[1]])
 				await get_tree().create_timer(1.5).timeout
 				get_viewport().get_texture().get_image().save_png(bits[0])
 				get_tree().quit()
@@ -52,7 +58,10 @@ func _swap(n: Node) -> void:
 func show_lobby(notice: String) -> void:
 	var l = LobbyScript.new()
 	l.notice = notice
-	l.play_local.connect(func(): _start_match())
+	l.play_local.connect(func(training):
+		var m = _start_match()
+		if training:
+			m.dummy_mode = 0)
 	l.play_online.connect(_start_online)
 	l.quit_game.connect(func(): get_tree().quit())
 	var layer := CanvasLayer.new()
@@ -87,6 +96,19 @@ func _start_nettest() -> void:
 		set_physics_process(true))
 	if parts[0] == "host":
 		net.host(parts[1])
+	elif parts[0] == "hostpub":
+		net.host(parts[1], true, "TestHost")
+	elif parts[0] == "browse":
+		# Find the arena through the public list, then join it.
+		var b := ArenaBrowser.new()
+		add_child(b)
+		await get_tree().create_timer(3.0).timeout
+		print("[nettest] arenas: ", b.list())
+		if b.list().is_empty():
+			get_tree().quit(5)
+			return
+		net.join(b.list()[0].code)
+		b.queue_free()
 	else:
 		net.join(parts[1])
 	set_physics_process(false)

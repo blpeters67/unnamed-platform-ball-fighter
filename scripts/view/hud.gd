@@ -218,28 +218,32 @@ func _draw_pause(vs: Vector2) -> void:
 		var sel: bool = i == m.pause_sel
 		var c = Color("ffd166") if sel else Color(1, 1, 1, 0.7)
 		_text(font_ui, Vector2(0, 250 + i * 52), ("> " if sel else "") + items[i], HORIZONTAL_ALIGNMENT_CENTER, vs.x, 36 if sel else 30, c, 6)
+	var P = Settings.pad
+	var K = Settings.kb1
+	var pb = func(k): return Settings.bindings_text(P[k], true)
+	var kb = func(k): return Settings.bindings_text(K[k], false)
 	var col1 = [
 		"CONTROLLER (Xbox / PlayStation / Switch)",
 		"Left stick: walk (tilt) / dash (flick)",
-		"B: attack    A: special",
-		"X / Y: jump",
+		"%s: attack    %s: special" % [pb.call("attack"), pb.call("special")],
+		"%s: jump" % pb.call("jump"),
 		"Right stick: smash attacks (air: aerials)",
-		"Flick stick + B: smash attack",
-		"RT: throw ball / recall ball",
-		"RB: shield (tap = parry)   LT: grab",
-		"LB: BURST when the meter is full",
-		"Start: pause    Back/Select: CPU / sandbag",
+		"Flick stick + attack: smash attack",
+		"%s: throw ball / recall ball" % pb.call("ball"),
+		"%s: shield (tap = parry)   %s: grab" % [pb.call("shield"), pb.call("grab")],
+		"%s: BURST when the meter is full" % pb.call("burst"),
+		"%s: pause    %s: CPU / sandbag" % [pb.call("start"), pb.call("back")],
 	]
 	var col2 = [
-		"KEYBOARD",
-		"WASD or arrows: move (tap = dash)",
-		"K or Enter: attack    J: special",
-		"Space: jump",
-		"H + direction + K: smash attack",
-		"Shift or ;: throw ball / recall ball",
-		"L: shield (tap = parry)    U: grab",
-		"O: BURST",
-		"Esc: pause  F2: CPU/sandbag  F11: fullscreen",
+		"KEYBOARD   (change any of these in Settings > Controls)",
+		"%s %s %s %s or arrows: move (tap = dash)" % [kb.call("up"), kb.call("left"), kb.call("down"), kb.call("right")],
+		"%s: attack    %s: special" % [kb.call("attack"), kb.call("special")],
+		"%s: jump" % kb.call("jump"),
+		"%s + direction + attack: smash attack" % kb.call("smash"),
+		"%s: throw ball / recall ball" % kb.call("ball"),
+		"%s: shield (tap = parry)    %s: grab" % [kb.call("shield"), kb.call("grab")],
+		"%s: BURST" % kb.call("burst"),
+		"%s: pause  %s: CPU/sandbag  F11: fullscreen" % [kb.call("start"), kb.call("back")],
 		"2nd keyboard player: press numpad 1 to join",
 	]
 	var tips = [

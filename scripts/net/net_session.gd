@@ -36,6 +36,9 @@ var brokers: Array = BROKERS
 var mq_t := 0.0          # time since the current broker attempt started
 var subscribed := false
 var room_seen := false
+var public := false       # listed in the public arena browser
+var host_name := ""
+var room_topic := ""
 var room_wait := 0.0
 var pc: WebRTCPeerConnection
 var game_ch: WebRTCDataChannel
@@ -89,9 +92,17 @@ static func webrtc_available() -> bool:
 func _topic(who: String) -> String:
 	return TOPIC_ROOT + code + "/" + who
 
+static func arena_topic(c: String) -> String:
+	return TOPIC_ROOT + "arenas/" + c
+
+func _room_topics() -> Array:
+	return [_topic("room"), arena_topic(code)]
+
 # ------------------------------------------------------------ public API
-func host(room: String = "") -> void:
+func host(room: String = "", pub: bool = false, name: String = "") -> void:
 	is_host = true
+	public = pub
+	host_name = name
 	code = room if room != "" else random_code()
 	my_id = "host"
 	status_changed.emit("Setting up room...")
@@ -111,7 +122,7 @@ func close() -> void:
 	if peer_id != "" and peer_id != "host" or (not is_host and state == CONNECTED):
 		_send_sig("BYE", {}, peer_id)
 	if is_host:
-		mq.publish(_topic("room"), PackedByteArray(), true)   # close the room
+		mq.publish(room_topic, PackedByteArray(), true)   # close the room
 	if ctl_ch and ctl_ch.get_ready_state() == WebRTCDataChannel.STATE_OPEN:
 		ctl_ch.put_packet(JSON.stringify({"t": "bye"}).to_utf8_buffer())
 	if pc:
@@ -181,11 +192,12 @@ func _connect_broker() -> void:
 	subscribed = false
 	room_seen = false
 	room_wait = 0.0
+	room_topic = arena_topic(code) if public else _topic("room")
 	var cid := "ubf%s%s%04x" % [code, my_id, randi() % 65536]
 	var err: int
 	if is_host:
 		# If the host vanishes, the broker clears the "room open" flag itself.
-		err = mq.connect_to(url, cid, _topic("room"), PackedByteArray(), true)
+		err = mq.connect_to(url, cid, room_topic, PackedByteArray(), true)
 	else:
 		err = mq.connect_to(url, cid)
 	if err != OK:
@@ -213,7 +225,7 @@ func _fail(reason: String) -> void:
 	if pc:
 		pc.close()
 	if is_host:
-		mq.publish(_topic("room"), PackedByteArray(), true)
+		mq.publish(room_topic, PackedByteArray(), true)
 	mq.close()
 	failed.emit(reason)
 
@@ -265,12 +277,10 @@ func _poll_signal(dt: float) -> void:
 		log_line("server connected (was %d)" % was)
 		mq.subscribe(_topic(my_id))
 		mq.subscribe(_topic(my_id + "/d"))
-		if is_host:
-			# Claim the room only if no other host has it right now.
-			mq.subscribe(_topic("room"))
-			room_wait = 0.0
-		else:
-			mq.subscribe(_topic("room"))
+		# Hosts check that nobody already holds the code; joiners look for it.
+		for rt in _room_topics():
+			mq.subscribe(rt)
+		room_wait = 0.0
 	for m in mq.inbox:
 		_on_mq(m[0], m[1])
 	mq.inbox.clear()
@@ -279,7 +289,7 @@ func _poll_signal(dt: float) -> void:
 		if is_host and room_wait > 1.2 and not room_seen and diag.offer == false and peer_id == "":
 			# Nobody else holds this code: open the room.
 			room_seen = true
-			mq.publish(_topic("room"), JSON.stringify({"proto": PROTO}).to_utf8_buffer(), true)
+			mq.publish(room_topic, JSON.stringify({"proto": PROTO, "name": host_name, "code": code}).to_utf8_buffer(), true)
 			log_line("room open")
 			status_changed.emit("Room ready")
 		elif not is_host and room_wait > 5.0 and not room_seen:
@@ -291,7 +301,7 @@ func _on_mq(topic: String, payload: PackedByteArray) -> void:
 			rx.append(payload)
 			last_recv = t
 		return
-	if topic == _topic("room"):
+	if topic in _room_topics():
 		if payload.size() == 0:
 			return
 		if is_host:
@@ -335,7 +345,7 @@ func _on_sig(msg: Dictionary) -> void:
 					status_changed.emit("A friend tried to join with a different game version.")
 					return
 				peer_id = src
-				mq.publish(_topic("room"), PackedByteArray(), true)   # room is full now
+				mq.publish(room_topic, PackedByteArray(), true)   # room is full now
 				_make_pc()
 				state = CONNECTING
 				t = 0.0
@@ -366,7 +376,7 @@ func _on_sig(msg: Dictionary) -> void:
 				_send_sig("ANSWER", {"err": "version"}, src)
 				return
 			if peer_id == "":
-				mq.publish(_topic("room"), PackedByteArray(), true)
+				mq.publish(room_topic, PackedByteArray(), true)
 			peer_id = src
 			_send_sig("RELAY_OK", {}, src)
 			if not relay:

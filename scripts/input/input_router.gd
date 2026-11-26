@@ -18,18 +18,6 @@ var _prev_mag := {}                   # device -> stick magnitude history
 var _smash_latch := {}
 var _prev_raw := {}
 
-const KB1 := {
-	"left": [KEY_A], "right": [KEY_D], "up": [KEY_W], "down": [KEY_S],
-	"attack": [KEY_K, KEY_ENTER], "special": [KEY_J], "jump": [KEY_SPACE], "ball": [KEY_SHIFT, KEY_SEMICOLON],
-	"shield": [KEY_L], "grab": [KEY_U], "burst": [KEY_O], "smash": [KEY_H],
-	"start": [KEY_ESCAPE], "back": [KEY_F2],
-}
-const KB2 := {
-	"left": [KEY_LEFT], "right": [KEY_RIGHT], "up": [KEY_UP], "down": [KEY_DOWN],
-	"attack": [KEY_KP_1, KEY_COMMA], "special": [KEY_KP_2, KEY_PERIOD], "jump": [KEY_KP_0],
-	"ball": [KEY_KP_3, KEY_SLASH], "shield": [KEY_KP_ENTER], "grab": [KEY_KP_4, KEY_M],
-	"burst": [KEY_KP_6, KEY_N], "smash": [KEY_KP_5, KEY_B], "start": [KEY_KP_ADD, KEY_BACKSPACE], "back": [KEY_KP_SUBTRACT],
-}
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -173,7 +161,7 @@ func _keys(map: Dictionary, k: String) -> bool:
 func _raw(d: String) -> int:
 	var b := 0
 	if d == "kb1" or d == "kb2":
-		var m: Dictionary = KB1 if d == "kb1" else KB2
+		var m: Dictionary = Settings.kb1 if d == "kb1" else Settings.kb2
 		# The arrow keys belong to the main keyboard player unless a second
 		# keyboard player has joined (from the numpad). Steam's desktop mode
 		# turns a controller's D-pad into arrow keys, so arrows must never
@@ -222,19 +210,28 @@ func _raw(d: String) -> int:
 			b |= Inp.C_LEFT if rx < 0 else Inp.C_RIGHT
 		else:
 			b |= Inp.C_UP if ry < 0 else Inp.C_DOWN
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_B): b |= Inp.ATTACK
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_A): b |= Inp.SPECIAL
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_X) or Input.is_joy_button_pressed(j, JOY_BUTTON_Y): b |= Inp.JUMP
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_RIGHT_SHOULDER): b |= Inp.SHIELD
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_LEFT_SHOULDER): b |= Inp.BURST
-	if Input.get_joy_axis(j, JOY_AXIS_TRIGGER_RIGHT) > TRIGGER: b |= Inp.BALL
-	if Input.get_joy_axis(j, JOY_AXIS_TRIGGER_LEFT) > TRIGGER: b |= Inp.GRAB
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_START): b |= Inp.START
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_BACK): b |= Inp.BACK
+	var pm: Dictionary = Settings.pad
+	for act in PAD_BITS:
+		for bind in pm.get(act, []):
+			if _pad_pressed(j, bind):
+				b |= PAD_BITS[act]
+				break
 	return b
 
 
+const PAD_BITS := {"attack": Inp.ATTACK, "special": Inp.SPECIAL, "jump": Inp.JUMP, "ball": Inp.BALL,
+	"shield": Inp.SHIELD, "grab": Inp.GRAB, "burst": Inp.BURST, "smash": Inp.SMASH, "start": Inp.START, "back": Inp.BACK}
+
+func _pad_pressed(j: int, bind) -> bool:
+	if bind is String and bind.begins_with("axis:"):
+		return Input.get_joy_axis(j, int(bind.substr(5))) > TRIGGER
+	if bind is int:
+		return Input.is_joy_button_pressed(j, bind)
+	return false
+
 func rumble(slot: int, weak: float, strong: float, dur: float) -> void:
+	if not Settings.rumble:
+		return
 	if slot < 0 or slot >= MAX_SLOTS:
 		return
 	var d := slots[slot]

@@ -13,6 +13,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+Settings="*res://scripts/settings.gd"
 Sfx="*res://scripts/audio/sfx.gd"
 InputRouter="*res://scripts/input/input_router.gd"
 
