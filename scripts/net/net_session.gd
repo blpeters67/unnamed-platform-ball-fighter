@@ -111,15 +111,35 @@ func _open_signal() -> void:
 		state = IDLE
 		_fail.call_deferred("Online play needs the file libwebrtc_native...dll in the same folder as the game. Unzip the whole zip, not just the .exe.")
 		return
+	log_line("connecting to signaling as %s" % my_id)
 	var url := signal_url + ("&" if signal_url.contains("?") else "?") + "id=%s&token=%d&version=1.5.4" % [my_id, randi()]
 	var tls := TLSOptions.client()
 	var err := ws.connect_to_url(url, tls if url.begins_with("wss") else null)
 	if err != OK:
 		_fail("Couldn't reach the matchmaking server.")
 
+var _log_file: FileAccess
+var _last_ws_state := -1
+var _last_pc_state := -1
+
+## Writes net-log.txt next to the game so connection problems can be diagnosed.
+func log_line(m: String) -> void:
+	print("[net] ", m)
+	if _log_file == null:
+		var dir := OS.get_executable_path().get_base_dir() if OS.has_feature("template") else ProjectSettings.globalize_path("user://")
+		_log_file = FileAccess.open(dir.path_join("net-log-%s.txt" % ("host" if is_host else "join")), FileAccess.WRITE)
+		if _log_file == null:
+			_log_file = FileAccess.open("user://net-log.txt", FileAccess.WRITE)
+		if _log_file:
+			_log_file.store_line("Unnamed Ball Fighter net log  %s  proto %s  %s" % [Time.get_datetime_string_from_system(), PROTO, "host" if is_host else "join"])
+	if _log_file:
+		_log_file.store_line("%7.2f  %s" % [t, m])
+		_log_file.flush()
+
 func _fail(reason: String) -> void:
 	if state == FAILED or state == CLOSED:
 		return
+	log_line("FAIL: " + reason)
 	state = FAILED
 	if pc:
 		pc.close()
@@ -127,6 +147,8 @@ func _fail(reason: String) -> void:
 	failed.emit(reason)
 
 func _send_sig(type: String, payload: Dictionary, dst: String) -> void:
+	if payload.get("relay", "") != "d":
+		log_line("send %s %s to %s (ws %d)" % [type, str(payload.get("relay", "")), dst, ws.get_ready_state()])
 	if ws.get_ready_state() == WebSocketPeer.STATE_OPEN:
 		ws.send_text(JSON.stringify({"type": type, "payload": payload, "dst": dst}))
 
@@ -138,6 +160,9 @@ func _process(dt: float) -> void:
 		_poll_channels()
 		if state == CONNECTING or state == CONNECTED:
 			var cs := pc.get_connection_state()
+			if cs != _last_pc_state:
+				_last_pc_state = cs
+				log_line("direct link state %d" % cs)
 			if cs == WebRTCPeerConnection.STATE_FAILED and state == CONNECTING and not is_host:
 				_start_relay()
 			elif cs == WebRTCPeerConnection.STATE_CLOSED and state == CONNECTED and not relay:
@@ -159,9 +184,12 @@ func _poll_signal(dt: float) -> void:
 		return
 	ws.poll()
 	var rs := ws.get_ready_state()
+	if rs != _last_ws_state:
+		_last_ws_state = rs
+		log_line("signal socket state %d%s" % [rs, (" close code %d reason '%s'" % [ws.get_close_code(), ws.get_close_reason()]) if rs == WebSocketPeer.STATE_CLOSED else ""])
 	if rs == WebSocketPeer.STATE_CLOSED:
 		if state == SIGNALING or (state == CONNECTING and not is_host):
-			_fail("Couldn't reach the matchmaking server. Check your internet connection.")
+			_fail("Lost the matchmaking server (code %d, step: %s)." % [ws.get_close_code(), diag_text()])
 		elif relay and state == CONNECTED:
 			_fail("Lost connection to the matchmaking server.")
 		return
@@ -179,6 +207,8 @@ func _poll_signal(dt: float) -> void:
 func _on_sig(msg: Dictionary) -> void:
 	var type: String = msg.get("type", "")
 	var payload = msg.get("payload", {})
+	if not (payload is Dictionary and payload.get("relay", "") == "d"):
+		log_line("recv %s from %s %s" % [type, str(msg.get("src", "")), JSON.stringify(payload).left(160) if type in ["ERROR", "ID-TAKEN", "EXPIRE"] else ""])
 	match type:
 		"OPEN":
 			if is_host:
