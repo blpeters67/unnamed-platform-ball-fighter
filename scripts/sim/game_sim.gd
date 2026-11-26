@@ -30,11 +30,16 @@ const CHARGE_FRAMES := 180   # one ball charge back every 3 seconds
 var st: Dictionary
 var events: Array = []
 var moves: Dictionary = CharJuno.moves()
+## Online play: start a fresh match this many frames after game over (0 = off).
+## It lives in the sim so both peers rematch on the exact same frame.
+var auto_rematch := 0
+var stocks_cfg := 3
 
 func _init(stocks: int = 3) -> void:
 	reset(stocks)
 
 func reset(stocks: int = 3) -> void:
+	stocks_cfg = stocks
 	st = {"frame": 0, "f": [_new_fighter(0, stocks), _new_fighter(1, stocks)],
 		"b": [_new_ball(0), _new_ball(1)], "winner": -1, "over": 0, "freeze": 0}
 	for b in st.b:
@@ -73,6 +78,9 @@ func _new_ball(owner: int) -> Dictionary:
 # =====================================================================
 func step(inputs: Array) -> void:
 	events.clear()
+	if auto_rematch > 0 and st.winner >= 0 and st.over >= auto_rematch:
+		reset(stocks_cfg)
+		events.append({"t": "rematch"})
 	st.frame += 1
 	var fs: Array = st.f
 	for i in 2:

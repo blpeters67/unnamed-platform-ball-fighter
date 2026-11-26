@@ -35,6 +35,7 @@ var focus_t = 0.0
 var cam_pos = Vector2(0, -200)
 var cam_zoom = 1.0
 var last_move = ["", ""]
+var strike_pos = [null, null]   # view-only: where each fighter's striking limb is
 var swipes = [[], []]   # white swipe lines showing each move's reach
 var combo_ui = [{}, {}]     # live combo display per attacker
 var summaries: Array = []    # combo summary cards
@@ -42,6 +43,17 @@ var pct_shake = [0.0, 0.0]
 var results_shown = false
 var prev_menu_bits = [0, 0, 0]
 var autoplay := false
+
+signal left_match(reason: String)
+
+# Online play
+var online := false
+var net: NetSession
+var rb: Rollback
+var my_slot := 0
+var net_frames := 0
+var last_sim_frame := 0
+var stat_t := 0
 
 func _ready() -> void:
 	dummy_rng.randomize()
@@ -77,12 +89,91 @@ func restart() -> void:
 	ball_trails = [[], []]
 
 func p2_is_dummy() -> bool:
-	return InputRouter.slots[1] == ""
+	return not online and InputRouter.slots[1] == ""
+
+func player_tag(i: int) -> String:
+	if online:
+		return "YOU" if i == my_slot else "FRIEND"
+	if i == 1 and p2_is_dummy():
+		return "CPU"
+	return "P%d" % (i + 1)
+
+## Switch this match to online play. The host is P1 and the joiner is P2.
+func setup_online(session: NetSession, slot: int) -> void:
+	online = true
+	net = session
+	my_slot = slot
+	add_child(net)
+	net.failed.connect(func(reason): _leave(reason))
+	sim.auto_rematch = 420
+	rb = Rollback.new(sim, slot)
+
+func _leave(reason: String) -> void:
+	if net:
+		net.close()
+	left_match.emit(reason)
+
+func _rumble(id: int, weak: float, strong: float, dur: float) -> void:
+	if online:
+		if id == my_slot:
+			InputRouter.rumble(0, weak, strong, dur)
+	else:
+		InputRouter.rumble(id, weak, strong, dur)
+
+func _online_tick() -> void:
+	InputRouter.poll_joins(true)
+	var b0: int = InputRouter.bits_for_slot(0)
+	var press := InputRouter.menu_pressed()
+	if paused:
+		if press & (InputRouter.M_UP | InputRouter.M_DOWN):
+			pause_sel = 1 - pause_sel
+			Sfx.play("menu")
+		if press & (InputRouter.M_BACK | InputRouter.M_START):
+			paused = false
+		elif press & InputRouter.M_OK:
+			Sfx.play("select")
+			if pause_sel == 0:
+				paused = false
+			else:
+				_leave("")
+				return
+		b0 = 0
+	elif press & InputRouter.M_START:
+		paused = true
+		pause_sel = 0
+		Sfx.play("menu")
+	if autoplay:
+		b0 = cpu0.think(sim, my_slot)
+	for p in net.take_packets():
+		rb.on_packet(p)
+	var evs = rb.tick(b0 & ~(Inp.START | Inp.BACK))
+	net.send_game(rb.make_packet())
+	if sim.st.frame < last_sim_frame:
+		_clear_view()
+	last_sim_frame = sim.st.frame
+	if evs != null:
+		net_frames += 1
+		for e in evs:
+			_on_event(e)
+		_track_swings()
+	results_shown = sim.st.winner >= 0 and sim.st.over > 150
+
+func _clear_view() -> void:
+	particles.clear()
+	popups.clear()
+	summaries.clear()
+	combo_ui = [{}, {}]
+	trails = [[], []]
+	ball_trails = [[], []]
+	swipes = [[], []]
 
 # =====================================================================
 # Fixed-rate simulation
 # =====================================================================
 func _physics_process(_dt: float) -> void:
+	if online:
+		_online_tick()
+		return
 	InputRouter.poll_joins(not paused)
 	if InputRouter.slots[0] == "" and InputRouter.slots[1] != "":
 		InputRouter.slots[0] = InputRouter.slots[1]
@@ -145,7 +236,7 @@ func _menu_input(b0: int, b1: int) -> bool:
 				2:
 					var dirn = -1 if press & Inp.LEFT else 1
 					dummy_mode = posmod(dummy_mode + dirn, DUMMY_MODES.size())
-				3: get_tree().quit()
+				3: left_match.emit("")
 		return true
 	return false
 
@@ -154,7 +245,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 		if ev.physical_keycode == KEY_F11 or (ev.physical_keycode == KEY_ENTER and ev.alt_pressed):
 			var w = get_window()
 			w.mode = Window.MODE_WINDOWED if w.mode == Window.MODE_FULLSCREEN else Window.MODE_FULLSCREEN
-		elif ev.physical_keycode == KEY_F5:
+		elif ev.physical_keycode == KEY_F5 and not online:
 			restart()
 
 func _track_swings() -> void:
@@ -276,7 +367,7 @@ func _on_event(e: Dictionary) -> void:
 			popup_world(p + Vector2(0, -50), "PARRY!", Color("fffbe0"), 46)
 			_impact(p, 3)
 			shake += 0.25
-			InputRouter.rumble(e.id, 0.6, 0.2, 0.15)
+			_rumble(e.id, 0.6, 0.2, 0.15)
 		"shield":
 			Sfx.play("shield", 1.0 + randf() * 0.1)
 			_sparks(p, 6, Color("9fe7ff"), 0.0, PI, 6.0)
@@ -295,11 +386,11 @@ func _on_event(e: Dictionary) -> void:
 			_impact(p, 4)
 			shake += 0.7
 			popup_world(p + Vector2(0, -90), "BURST!", bc.lightened(0.4), 64)
-			InputRouter.rumble(e.id, 0.8, 0.8, 0.35)
+			_rumble(e.id, 0.8, 0.8, 0.35)
 			if e.broke:
 				combo_ui[1 - e.id]["broken"] = 1.0
 		"bursthit":
-			InputRouter.rumble(e.v, 0.5, 1.0, 0.3)
+			_rumble(e.v, 0.5, 1.0, 0.3)
 			_sparks(p, 16, pal(e.a).glow, 0.0, TAU, 14.0)
 		"baited":
 			Sfx.play("parry", 0.7)
@@ -391,8 +482,8 @@ func _on_hit(e: Dictionary, p: Vector2) -> void:
 		focus_t = 0.18
 		impact_pos = p
 	# Rumble
-	InputRouter.rumble(a, 0.15 + dmg * 0.02, 0.05 + dmg * 0.015, 0.08 + dmg * 0.006)
-	InputRouter.rumble(v, 0.3 + dmg * 0.03, 0.3 + dmg * 0.05, 0.1 + dmg * 0.012)
+	_rumble(a, 0.15 + dmg * 0.02, 0.05 + dmg * 0.015, 0.08 + dmg * 0.006)
+	_rumble(v, 0.3 + dmg * 0.03, 0.3 + dmg * 0.05, 0.1 + dmg * 0.012)
 	# Combo UI
 	var mname: String = sim.moves[e.move].name if e.move != "ball" else "Comet Hook"
 	var cu: Dictionary = combo_ui[a]
@@ -445,8 +536,8 @@ func _on_ko(e: Dictionary, p: Vector2) -> void:
 	if e.combo >= 5:
 		txt = "%d-HIT KO!" % e.combo
 	popup_screen(txt, col.lightened(0.5), 110)
-	InputRouter.rumble(e.id, 1.0, 1.0, 0.6)
-	InputRouter.rumble(killer, 0.8, 0.6, 0.4)
+	_rumble(e.id, 1.0, 1.0, 0.6)
+	_rumble(killer, 0.8, 0.6, 0.4)
 
 func _on_combo_end(e: Dictionary) -> void:
 	var a: int = e.a
@@ -559,8 +650,8 @@ func _process(dt: float) -> void:
 func _update_trails() -> void:
 	for f in sim.st.f:
 		var tr: Array = trails[f.id]
-		if f.state == GameSim.S_ATTACK and f.has("_strike_pos"):
-			tr.push_front(f["_strike_pos"])
+		if f.state == GameSim.S_ATTACK and strike_pos[f.id] != null:
+			tr.push_front(strike_pos[f.id])
 		elif tr.size() > 0:
 			tr.pop_back()
 		if tr.size() > 7:
@@ -732,7 +823,7 @@ func _draw_fighter(f: Dictionary, sil: bool) -> void:
 	var silc = Color(1, 1, 1, 1) if sil else Color(0, 0, 0, 0)
 	var joints = FighterArt.draw(self, f, p, origin, pl, t, silc)
 	if p.strike != "" and joints.has(p.strike):
-		f["_strike_pos"] = joints[p.strike]
+		strike_pos[f.id] = joints[p.strike]
 	# Player tag
 	if not sil:
 		var tag = "P%d" % (f.id + 1)

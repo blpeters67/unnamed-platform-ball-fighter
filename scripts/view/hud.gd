@@ -29,6 +29,12 @@ func _draw() -> void:
 		var mode: String = m.DUMMY_MODES[m.dummy_mode]
 		var txt = "P2: %s      Back / Select / F2: toggle CPU and sandbag      2nd player: press any button on a controller to join" % mode
 		_text(font_ui, Vector2(0, vs.y - 18), txt, HORIZONTAL_ALIGNMENT_CENTER, vs.x, 18, Color(1, 1, 1, 0.5))
+	if m.online:
+		var rb: Rollback = m.rb
+		var txt = "ONLINE  room %s      you are %s      predicting %d frames      rollbacks %d" % [m.net.code, "P1" if m.my_slot == 0 else "P2", rb.unconfirmed(), rb.rollbacks]
+		if rb.desync_frame >= 0:
+			txt += "      DESYNC at frame %d (tell Claude!)" % rb.desync_frame
+		_text(font_ui, Vector2(0, vs.y - 18), txt, HORIZONTAL_ALIGNMENT_CENTER, vs.x, 18, Color(1, 1, 1, 0.5))
 	if m.paused:
 		_draw_pause(vs)
 	if sim.st.winner >= 0:
@@ -60,9 +66,7 @@ func _draw_card(i: int, f: Dictionary, vs: Vector2) -> void:
 	draw_circle(base + Vector2(52, 52), 34, pal.dark)
 	draw_circle(base + Vector2(52, 52), 28, pal.main)
 	draw_colored_polygon(PackedVector2Array([base + Vector2(54, 44), base + Vector2(78, 46), base + Vector2(76, 58), base + Vector2(50, 58)]), pal.visor)
-	var tag = "P%d" % (i + 1)
-	if i == 1 and m.p2_is_dummy():
-		tag = "CPU"
+	var tag = m.player_tag(i)
 	_text(font_ui, base + Vector2(16, 108), tag, HORIZONTAL_ALIGNMENT_LEFT, 80, 20, pal.accent)
 	_text(font_ui, base + Vector2(96, 26), CharJuno.NAME, HORIZONTAL_ALIGNMENT_LEFT, 200, 20, Color(1, 1, 1, 0.85))
 	# Damage percent
@@ -207,7 +211,9 @@ func _draw_screen_popups(vs: Vector2) -> void:
 func _draw_pause(vs: Vector2) -> void:
 	draw_rect(Rect2(Vector2.ZERO, vs), Color(0.03, 0.02, 0.07, 0.82))
 	_text(font_big, Vector2(0, 150), "PAUSED", HORIZONTAL_ALIGNMENT_CENTER, vs.x, 84, Color.WHITE, 12)
-	var items = ["Resume", "Restart match", "P2 when empty:  < %s >" % m.DUMMY_MODES[m.dummy_mode], "Quit game"]
+	var items = ["Resume", "Restart match", "P2 when empty:  < %s >" % m.DUMMY_MODES[m.dummy_mode], "Main menu"]
+	if m.online:
+		items = ["Resume  (the match keeps going!)", "Leave match"]
 	for i in items.size():
 		var sel: bool = i == m.pause_sel
 		var c = Color("ffd166") if sel else Color(1, 1, 1, 0.7)
@@ -271,19 +277,21 @@ func _draw_game_over(vs: Vector2) -> void:
 		_text(font_big, Vector2(0, vs.y * 0.5 + 60), "GAME!", HORIZONTAL_ALIGNMENT_CENTER, vs.x, sz, Color.WHITE, 18)
 		return
 	draw_rect(Rect2(Vector2.ZERO, vs), Color(0.03, 0.02, 0.07, 0.86))
-	var who = "P%d" % (win + 1)
-	if win == 1 and m.p2_is_dummy():
-		who = "CPU"
-	_text(font_big, Vector2(0, 260), "%s WINS" % who, HORIZONTAL_ALIGNMENT_CENTER, vs.x, 130, pal.main, 16)
+	var who = m.player_tag(win)
+	_text(font_big, Vector2(0, 260), ("YOU WIN!" if who == "YOU" else "%s WINS" % who), HORIZONTAL_ALIGNMENT_CENTER, vs.x, 130, pal.main, 16)
 	_text(font_ui, Vector2(0, 330), "JUNO, the Courier", HORIZONTAL_ALIGNMENT_CENTER, vs.x, 30, Color(1, 1, 1, 0.7))
 	for i in 2:
 		var f: Dictionary = sim.st.f[i]
 		var x = vs.x * (0.3 if i == 0 else 0.55)
-		var tag = "P%d" % (i + 1) if not (i == 1 and m.p2_is_dummy()) else "CPU"
+		var tag = m.player_tag(i)
 		var pc: Dictionary = FighterArt.PALETTES[i]
 		_text(font_big, Vector2(x, 460), tag, HORIZONTAL_ALIGNMENT_LEFT, 400, 56, pc.main, 8)
 		_text(font_ui, Vector2(x, 520), "KOs: %d" % f.kos, HORIZONTAL_ALIGNMENT_LEFT, 400, 32, Color.WHITE)
 		_text(font_ui, Vector2(x, 562), "Longest combo: %d hits" % f.best_combo, HORIZONTAL_ALIGNMENT_LEFT, 400, 32, Color.WHITE)
 		_text(font_ui, Vector2(x, 604), "Stocks left: %d" % maxi(0, f.stocks), HORIZONTAL_ALIGNMENT_LEFT, 400, 32, Color.WHITE)
 	var blink = 0.6 + 0.4 * sin(m.t * 4.0)
-	_text(font_ui, Vector2(0, 760), "Press B / K to play again", HORIZONTAL_ALIGNMENT_CENTER, vs.x, 34, Color(1, 1, 1, blink))
+	if m.online:
+		var left = maxi(0, (sim.auto_rematch - over) / 60 + 1)
+		_text(font_ui, Vector2(0, 760), "Rematch in %d..." % left, HORIZONTAL_ALIGNMENT_CENTER, vs.x, 34, Color(1, 1, 1, blink))
+	else:
+		_text(font_ui, Vector2(0, 760), "Press B / K to play again", HORIZONTAL_ALIGNMENT_CENTER, vs.x, 34, Color(1, 1, 1, blink))

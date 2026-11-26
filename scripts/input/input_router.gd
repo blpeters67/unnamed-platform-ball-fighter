@@ -240,3 +240,45 @@ func rumble(slot: int, weak: float, strong: float, dur: float) -> void:
 	var d := slots[slot]
 	if d.begins_with("joy"):
 		Input.start_joy_vibration(int(d.substr(3)), clampf(weak, 0, 1), clampf(strong, 0, 1), dur)
+
+# ---------------- Menu input ----------------
+# Menus read every device directly with the usual conventions (A / Enter to
+# confirm, B / Esc to go back) instead of the fight mapping.
+const M_UP := 1
+const M_DOWN := 2
+const M_LEFT := 4
+const M_RIGHT := 8
+const M_OK := 16
+const M_BACK := 32
+const M_START := 64
+var _menu_prev := 0
+
+## Bits newly pressed this frame on any device (call once per frame).
+## typing = true leaves the letter keys alone (for entering a room code).
+func menu_pressed(typing: bool = false) -> int:
+	var b := 0
+	var k := func(keys: Array) -> bool:
+		for key in keys:
+			if Input.is_physical_key_pressed(key):
+				return true
+		return false
+	if k.call([KEY_UP] if typing else [KEY_UP, KEY_W]): b |= M_UP
+	if k.call([KEY_DOWN] if typing else [KEY_DOWN, KEY_S]): b |= M_DOWN
+	if k.call([KEY_LEFT] if typing else [KEY_LEFT, KEY_A]): b |= M_LEFT
+	if k.call([KEY_RIGHT] if typing else [KEY_RIGHT, KEY_D]): b |= M_RIGHT
+	if k.call([KEY_ENTER, KEY_KP_ENTER] if typing else [KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_K]): b |= M_OK
+	if k.call([KEY_ESCAPE] if typing else [KEY_ESCAPE, KEY_BACKSPACE]): b |= M_BACK
+	if k.call([KEY_ESCAPE]): b |= M_START
+	for j in Input.get_connected_joypads():
+		var lx := Input.get_joy_axis(j, JOY_AXIS_LEFT_X)
+		var ly := Input.get_joy_axis(j, JOY_AXIS_LEFT_Y)
+		if ly < -0.6 or Input.is_joy_button_pressed(j, JOY_BUTTON_DPAD_UP): b |= M_UP
+		if ly > 0.6 or Input.is_joy_button_pressed(j, JOY_BUTTON_DPAD_DOWN): b |= M_DOWN
+		if lx < -0.6 or Input.is_joy_button_pressed(j, JOY_BUTTON_DPAD_LEFT): b |= M_LEFT
+		if lx > 0.6 or Input.is_joy_button_pressed(j, JOY_BUTTON_DPAD_RIGHT): b |= M_RIGHT
+		if Input.is_joy_button_pressed(j, JOY_BUTTON_A): b |= M_OK
+		if Input.is_joy_button_pressed(j, JOY_BUTTON_B) or Input.is_joy_button_pressed(j, JOY_BUTTON_BACK): b |= M_BACK
+		if Input.is_joy_button_pressed(j, JOY_BUTTON_START): b |= M_START | M_OK
+	var pressed := b & ~_menu_prev
+	_menu_prev = b
+	return pressed
