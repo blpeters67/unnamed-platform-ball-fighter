@@ -10,7 +10,7 @@ signal status_changed(text: String)
 signal connected
 signal failed(reason: String)
 
-const PROTO := "ubf-net-3"   # bump when the sim changes so old builds can't desync
+const PROTO := "ubf-net-4"   # bump when the sim changes so old builds can't desync
 const ID_PREFIX := "ubf-game-v1-"
 const CODE_CHARS := "ACDEFHJKMNPRTUVWXY"
 const CODE_LEN := 4
@@ -40,6 +40,15 @@ var got_hello := false
 var signal_url := DEFAULT_SIGNAL
 var ice_servers: Array = ICE
 var rx: Array = []   # received game packets (PackedByteArray)
+# Relay fallback: when a direct peer-to-peer link can't be made (firewall,
+# strict router), game packets go through the signaling server instead.
+const RELAY_AFTER := 7.0
+var relay := false
+var relay_t := 0.0
+var relay_send_n := 0
+var force_relay := false
+var drop_cands := false
+var diag := {"offer": false, "answer": false, "c_out": 0, "c_in": 0}
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
@@ -47,6 +56,10 @@ func _ready() -> void:
 			signal_url = a.substr(9)
 		elif a == "--no-stun":
 			ice_servers = []
+		elif a == "--force-relay":
+			force_relay = true
+		elif a == "--drop-cands":
+			drop_cands = true   # dev: simulate a blocked direct link
 
 static func random_code() -> String:
 	var rng := RandomNumberGenerator.new()
@@ -79,6 +92,9 @@ func join(room: String) -> void:
 	status_changed.emit("Looking for room %s..." % code)
 
 func close() -> void:
+	if relay and peer_id != "":
+		_send_sig("CANDIDATE", {"relay": "bye"}, peer_id)
+		ws.poll()
 	if ctl_ch and ctl_ch.get_ready_state() == WebRTCDataChannel.STATE_OPEN:
 		ctl_ch.put_packet(JSON.stringify({"t": "bye"}).to_utf8_buffer())
 	if pc:
@@ -122,12 +138,19 @@ func _process(dt: float) -> void:
 		_poll_channels()
 		if state == CONNECTING or state == CONNECTED:
 			var cs := pc.get_connection_state()
-			if cs == WebRTCPeerConnection.STATE_FAILED:
-				_fail("Couldn't connect directly to your friend's PC. A strict router or firewall may be blocking it.")
-			elif cs == WebRTCPeerConnection.STATE_CLOSED and state == CONNECTED:
+			if cs == WebRTCPeerConnection.STATE_FAILED and state == CONNECTING and not is_host:
+				_start_relay()
+			elif cs == WebRTCPeerConnection.STATE_CLOSED and state == CONNECTED and not relay:
 				_fail("Your friend left.")
-	if state == CONNECTING and t > 25.0:
-		_fail("Connecting took too long. Try again, or try hosting from the other PC.")
+	if state == CONNECTING and not is_host and not relay and (t > RELAY_AFTER or force_relay):
+		_start_relay()
+	if relay and state == CONNECTING and not is_host:
+		relay_t += get_process_delta_time()
+		if relay_t > 1.0:
+			relay_t = 0.0
+			_send_sig("CANDIDATE", {"relay": "start", "proto": PROTO}, peer_id)
+	if state == CONNECTING and t > 30.0:
+		_fail("Couldn't connect to your friend (%s). Try again, or try hosting from the other PC." % diag_text())
 	if state == CONNECTED and t - last_recv > 5.0:
 		_fail("Lost connection to your friend.")
 
@@ -137,8 +160,10 @@ func _poll_signal(dt: float) -> void:
 	ws.poll()
 	var rs := ws.get_ready_state()
 	if rs == WebSocketPeer.STATE_CLOSED:
-		if state == SIGNALING:
+		if state == SIGNALING or (state == CONNECTING and not is_host):
 			_fail("Couldn't reach the matchmaking server. Check your internet connection.")
+		elif relay and state == CONNECTED:
+			_fail("Lost connection to the matchmaking server.")
 		return
 	if rs != WebSocketPeer.STATE_OPEN:
 		return
@@ -159,10 +184,11 @@ func _on_sig(msg: Dictionary) -> void:
 			if is_host:
 				status_changed.emit("Room ready")
 			else:
-				_make_pc()
 				state = CONNECTING
 				t = 0.0
-				pc.create_offer()
+				if not force_relay:
+					_make_pc()
+					pc.create_offer()
 				status_changed.emit("Connecting to room %s..." % code)
 		"ID-TAKEN":
 			if is_host:
@@ -198,11 +224,17 @@ func _on_sig(msg: Dictionary) -> void:
 				if payload.get("err", "") == "version":
 					_fail("Your friend has a different version of the game. Both of you need the newest build.")
 					return
+				diag.answer = true
+				if pc == null:
+					return
 				pc.set_remote_description("answer", payload.get("sdp", ""))
 				remote_desc_set = true
 				_flush_cands()
 		"CANDIDATE":
-			if payload is Dictionary and msg.get("src", "") == peer_id:
+			if payload is Dictionary and payload.has("relay"):
+				_on_relay(payload, msg.get("src", ""))
+			elif payload is Dictionary and msg.get("src", "") == peer_id and not drop_cands:
+				diag.c_in += 1
 				pending_cands.append(payload)
 				_flush_cands()
 
@@ -221,14 +253,16 @@ func _make_pc() -> void:
 		return
 	pc.session_description_created.connect(func(type: String, sdp: String):
 		pc.set_local_description(type, sdp)
+		diag.offer = true
 		_send_sig("OFFER" if type == "offer" else "ANSWER", {"sdp": sdp, "proto": PROTO}, peer_id))
 	pc.ice_candidate_created.connect(func(mid: String, idx: int, cand: String):
+		diag.c_out += 1
 		_send_sig("CANDIDATE", {"mid": mid, "idx": idx, "cand": cand}, peer_id))
 	game_ch = pc.create_data_channel("game", {"negotiated": true, "id": 1, "ordered": false, "maxRetransmits": 0})
 	ctl_ch = pc.create_data_channel("ctl", {"negotiated": true, "id": 2})
 
 func _poll_channels() -> void:
-	if ctl_ch == null or game_ch == null:
+	if ctl_ch == null or game_ch == null or relay:
 		return
 	if ctl_ch.get_ready_state() == WebRTCDataChannel.STATE_OPEN:
 		if not hello_sent:
@@ -246,7 +280,7 @@ func _poll_channels() -> void:
 	if state == CONNECTING and got_hello and game_ch.get_ready_state() == WebRTCDataChannel.STATE_OPEN:
 		state = CONNECTED
 		last_recv = t
-		ws.close()   # the signaling server isn't needed any more
+		# The signaling socket stays open so the relay can take over if needed.
 		status_changed.emit("Connected!")
 		connected.emit()
 	if game_ch.get_ready_state() == WebRTCDataChannel.STATE_OPEN:
@@ -255,6 +289,13 @@ func _poll_channels() -> void:
 			last_recv = t
 
 func send_game(bytes: PackedByteArray) -> void:
+	if relay:
+		# Every packet repeats recent inputs, so 30 Hz is plenty here and
+		# keeps the load on the shared server down.
+		relay_send_n += 1
+		if relay_send_n % 2 == 0:
+			_send_sig("CANDIDATE", {"relay": "d", "b": Marshalls.raw_to_base64(bytes)}, peer_id)
+		return
 	if game_ch and game_ch.get_ready_state() == WebRTCDataChannel.STATE_OPEN:
 		game_ch.put_packet(bytes)
 
@@ -262,3 +303,59 @@ func take_packets() -> Array:
 	var out := rx
 	rx = []
 	return out
+
+func _start_relay() -> void:
+	if relay:
+		return
+	relay = true
+	relay_t = 1.0
+	if pc:
+		pc.close()
+	status_changed.emit("Direct link blocked, connecting through the server...")
+
+func _on_relay(payload: Dictionary, src: String) -> void:
+	var kind: String = payload.get("relay", "")
+	match kind:
+		"start":
+			if not is_host or (state != SIGNALING and state != CONNECTING and state != CONNECTED):
+				return
+			if peer_id != "" and src != peer_id:
+				return
+			if payload.get("proto", "") != PROTO:
+				_send_sig("ANSWER", {"err": "version", "proto": PROTO}, src)
+				return
+			peer_id = src
+			_send_sig("CANDIDATE", {"relay": "ok"}, src)
+			if not relay:
+				relay = true
+				if pc:
+					pc.close()
+				if state != CONNECTED:
+					_relay_connected()
+		"ok":
+			if relay and state == CONNECTING and src == peer_id:
+				_relay_connected()
+		"d":
+			if relay and src == peer_id:
+				rx.append(Marshalls.base64_to_raw(payload.get("b", "")))
+				last_recv = t
+		"bye":
+			if src == peer_id and state == CONNECTED:
+				_fail("Your friend left.")
+
+func _relay_connected() -> void:
+	state = CONNECTED
+	last_recv = t
+	status_changed.emit("Connected (through the server)!")
+	connected.emit()
+
+func diag_text() -> String:
+	var parts := []
+	parts.append("offer sent" if diag.offer else "no offer")
+	parts.append("answer back" if diag.answer else "no answer")
+	parts.append("candidates %d out / %d in" % [diag.c_out, diag.c_in])
+	if pc:
+		parts.append("link state %d" % pc.get_connection_state())
+	if relay:
+		parts.append("relay tried")
+	return ", ".join(parts)

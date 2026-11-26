@@ -213,6 +213,7 @@ func _draw_host(vs: Vector2) -> void:
 	var dots := ".".repeat(int(t * 2.0) % 4)
 	var s := status if status_bad else ("Waiting for your friend" + dots if status == "Room ready" or status == "" else status)
 	_text(font_ui, Vector2(0, 800), s, 32, Color("ff8fa3") if status_bad else Color("b9f3ff"), 4)
+	_draw_diag()
 	_text(font_ui, Vector2(0, vs.y - 40), "B / Esc: back" + ("      A / Enter: try again" if status_bad else ""), 22, Color(1, 1, 1, 0.45))
 
 func _draw_join(vs: Vector2) -> void:
@@ -235,4 +236,9 @@ func _draw_join(vs: Vector2) -> void:
 	var dots := ".".repeat(int(t * 2.0) % 4)
 	var s := status + (dots if connecting else "")
 	_text(font_ui, Vector2(0, 800), s, 32, Color("ff8fa3") if status_bad else Color("b9f3ff"), 4)
+	_draw_diag()
 	_text(font_ui, Vector2(0, vs.y - 40), "Type the letters or paste with Ctrl+V.   Controller: up/down picks a letter, left/right moves.   A / Enter: join   B / Esc: back", 22, Color(1, 1, 1, 0.45))
+
+func _draw_diag() -> void:
+	if net and net.state == NetSession.CONNECTING:
+		_text(font_ui, Vector2(0, 850), net.diag_text(), 20, Color(1, 1, 1, 0.4))
