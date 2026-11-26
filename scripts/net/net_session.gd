@@ -86,8 +86,15 @@ func close() -> void:
 	ws.close()
 	state = CLOSED
 
+static func webrtc_available() -> bool:
+	return ClassDB.class_exists("WebRTCLibPeerConnection")
+
 func _open_signal() -> void:
 	state = SIGNALING
+	if not webrtc_available():
+		state = IDLE
+		_fail.call_deferred("Online play needs the file libwebrtc_native...dll in the same folder as the game. Unzip the whole zip, not just the .exe.")
+		return
 	var url := signal_url + ("&" if signal_url.contains("?") else "?") + "id=%s&token=%d&version=1.5.4" % [my_id, randi()]
 	var tls := TLSOptions.client()
 	var err := ws.connect_to_url(url, tls if url.begins_with("wss") else null)
