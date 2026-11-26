@@ -215,23 +215,23 @@ func _draw_pause(vs: Vector2) -> void:
 	var col1 = [
 		"CONTROLLER (Xbox / PlayStation / Switch)",
 		"Left stick: walk (tilt) / dash (flick)",
-		"A: attack    B: special",
+		"B: attack    A: special",
 		"X / Y: jump",
 		"Right stick: smash attacks (air: aerials)",
-		"Flick stick + A: smash attack",
-		"RB: throw ball / recall ball",
-		"RT: shield (tap = parry)   LT: grab",
+		"Flick stick + B: smash attack",
+		"RT: throw ball / recall ball",
+		"RB: shield (tap = parry)   LT: grab",
 		"LB: BURST when the meter is full",
 		"Start: pause    Back/Select: CPU / sandbag",
 	]
 	var col2 = [
 		"KEYBOARD",
 		"WASD or arrows: move (tap = dash)",
-		"J or Enter: attack    K: special",
+		"K or Enter: attack    J: special",
 		"Space: jump",
-		"H + direction + J: smash attack",
-		"L: throw ball / recall ball",
-		"Shift or ;: shield    U: grab",
+		"H + direction + K: smash attack",
+		"Shift or ;: throw ball / recall ball",
+		"L: shield (tap = parry)    U: grab",
 		"O: BURST",
 		"Esc: pause  F2: CPU/sandbag  F11: fullscreen",
 		"2nd keyboard player: press numpad 1 to join",
@@ -286,4 +286,4 @@ func _draw_game_over(vs: Vector2) -> void:
 		_text(font_ui, Vector2(x, 562), "Longest combo: %d hits" % f.best_combo, HORIZONTAL_ALIGNMENT_LEFT, 400, 32, Color.WHITE)
 		_text(font_ui, Vector2(x, 604), "Stocks left: %d" % maxi(0, f.stocks), HORIZONTAL_ALIGNMENT_LEFT, 400, 32, Color.WHITE)
 	var blink = 0.6 + 0.4 * sin(m.t * 4.0)
-	_text(font_ui, Vector2(0, 760), "Press A / J to play again", HORIZONTAL_ALIGNMENT_CENTER, vs.x, 34, Color(1, 1, 1, blink))
+	_text(font_ui, Vector2(0, 760), "Press B / K to play again", HORIZONTAL_ALIGNMENT_CENTER, vs.x, 34, Color(1, 1, 1, blink))

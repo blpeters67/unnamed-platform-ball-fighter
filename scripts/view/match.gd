@@ -35,6 +35,7 @@ var focus_t = 0.0
 var cam_pos = Vector2(0, -200)
 var cam_zoom = 1.0
 var last_move = ["", ""]
+var swipes = [[], []]   # white swipe lines showing each move's reach
 var combo_ui = [{}, {}]     # live combo display per attacker
 var summaries: Array = []    # combo summary cards
 var pct_shake = [0.0, 0.0]
@@ -165,6 +166,15 @@ func _track_swings() -> void:
 				var pitch = 1.3 if ty == "jab" else (0.8 if ty == "smash" else 1.0)
 				Sfx.play("swing", pitch + randf() * 0.1, -6.0)
 		last_move[f.id] = mv
+		# Record active hitboxes as a white swipe (shows exactly how big the move is)
+		var sw: Array = swipes[f.id]
+		if mv != "" and sim.moves[mv].has("hb") and f.hitlag == 0:
+			for h in sim.moves[mv].hb:
+				if f.mf >= h.f0 and f.mf <= h.f1:
+					var c: Vector2i = sim.hitbox_world(f, h)
+					sw.append({"p": w(c.x, c.y), "r": float(h.r), "life": 1.0, "mv": mv + str(f.id), "g": h.g})
+		elif f.state == GameSim.S_BURST and f.sf >= 3 and f.sf <= 8:
+			sw.append({"p": w(f.x, f.y - 46 * U), "r": 175.0, "life": 1.0, "mv": "burst", "g": 0})
 
 # =====================================================================
 # Training dummy / sparring CPU (local only, never in netplay)
@@ -512,6 +522,10 @@ func _process(dt: float) -> void:
 				pa.v *= pow(0.92, k)
 				pa.p.y -= 0.3 * k
 	particles = particles.filter(func(pa): return pa.life > 0)
+	for i in 2:
+		for sp in swipes[i]:
+			sp.life -= dt * 5.0
+		swipes[i] = swipes[i].filter(func(sp): return sp.life > 0)
 	for pp in popups:
 		pp.t += dt
 	popups = popups.filter(func(pp): return pp.t < (1.6 if pp.world else 2.2))
@@ -699,6 +713,16 @@ func _draw_fighter(f: Dictionary, sil: bool) -> void:
 	# Hooked victim glow
 	if f.state == GameSim.S_HOOKED:
 		draw_circle(origin + Vector2(0, -46), 58, Color(pal(1 - f.id).visor, 0.22))
+	# White swipe: the swept area of the move's hitboxes
+	if not sil:
+		var sw: Array = swipes[f.id]
+		for i in sw.size():
+			var sp: Dictionary = sw[i]
+			var a2: float = clampf(sp.life, 0, 1)
+			draw_circle(sp.p, sp.r, Color(1, 1, 1, 0.16 * a2))
+			if i > 0 and sw[i - 1].mv == sp.mv and sw[i - 1].p.distance_to(sp.p) < 120:
+				draw_line(sw[i - 1].p, sp.p, Color(1, 1, 1, 0.5 * a2), sp.r * 1.6)
+			draw_arc(sp.p, sp.r, 0, TAU, 28, Color(1, 1, 1, 0.75 * a2), 2.5)
 	# Attack trail (motion smear)
 	var tr: Array = trails[f.id]
 	if tr.size() >= 2 and not sil:

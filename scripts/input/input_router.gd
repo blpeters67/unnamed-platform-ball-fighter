@@ -20,8 +20,8 @@ var _prev_raw := {}
 
 const KB1 := {
 	"left": [KEY_A], "right": [KEY_D], "up": [KEY_W], "down": [KEY_S],
-	"attack": [KEY_J, KEY_ENTER], "special": [KEY_K], "jump": [KEY_SPACE], "ball": [KEY_L],
-	"shield": [KEY_SHIFT, KEY_SEMICOLON], "grab": [KEY_U], "burst": [KEY_O], "smash": [KEY_H],
+	"attack": [KEY_K, KEY_ENTER], "special": [KEY_J], "jump": [KEY_SPACE], "ball": [KEY_SHIFT, KEY_SEMICOLON],
+	"shield": [KEY_L], "grab": [KEY_U], "burst": [KEY_O], "smash": [KEY_H],
 	"start": [KEY_ESCAPE], "back": [KEY_F2],
 }
 const KB2 := {
@@ -222,12 +222,12 @@ func _raw(d: String) -> int:
 			b |= Inp.C_LEFT if rx < 0 else Inp.C_RIGHT
 		else:
 			b |= Inp.C_UP if ry < 0 else Inp.C_DOWN
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_A): b |= Inp.ATTACK
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_B): b |= Inp.SPECIAL
+	if Input.is_joy_button_pressed(j, JOY_BUTTON_B): b |= Inp.ATTACK
+	if Input.is_joy_button_pressed(j, JOY_BUTTON_A): b |= Inp.SPECIAL
 	if Input.is_joy_button_pressed(j, JOY_BUTTON_X) or Input.is_joy_button_pressed(j, JOY_BUTTON_Y): b |= Inp.JUMP
-	if Input.is_joy_button_pressed(j, JOY_BUTTON_RIGHT_SHOULDER): b |= Inp.BALL
+	if Input.is_joy_button_pressed(j, JOY_BUTTON_RIGHT_SHOULDER): b |= Inp.SHIELD
 	if Input.is_joy_button_pressed(j, JOY_BUTTON_LEFT_SHOULDER): b |= Inp.BURST
-	if Input.get_joy_axis(j, JOY_AXIS_TRIGGER_RIGHT) > TRIGGER: b |= Inp.SHIELD
+	if Input.get_joy_axis(j, JOY_AXIS_TRIGGER_RIGHT) > TRIGGER: b |= Inp.BALL
 	if Input.get_joy_axis(j, JOY_AXIS_TRIGGER_LEFT) > TRIGGER: b |= Inp.GRAB
 	if Input.is_joy_button_pressed(j, JOY_BUTTON_START): b |= Inp.START
 	if Input.is_joy_button_pressed(j, JOY_BUTTON_BACK): b |= Inp.BACK

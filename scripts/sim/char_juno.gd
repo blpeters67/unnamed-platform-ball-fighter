@@ -12,8 +12,8 @@ const WALK := 560
 const WALK_SLOW := 280
 const DASH_SPEED := 1050
 const RUN_SPEED := 920
-const DASH_FRAMES := 11
-const SKID_FRAMES := 9
+const DASH_FRAMES := 9
+const SKID_FRAMES := 5
 const WALK_ACCEL := 140
 const GROUND_FRICTION := 90
 const AIR_SPEED := 600
@@ -52,8 +52,10 @@ static func _build() -> Dictionary:
 	# ---------------- Tilts ----------------
 	m["ftilt"] = {"name": "Forward Tilt", "type": "tilt", "len": 27,
 		"hb": [hb(6, 8, 60, -48, 30, 8, 35, 700, 780)]}
-	m["utilt"] = {"name": "Up Tilt", "type": "tilt", "len": 25,
-		"hb": [hb(5, 10, 6, -108, 38, 6, 94, 780, 430)]}
+	# Flip kick: one quick foot arc from in front, over the head, to behind.
+	m["utilt"] = {"name": "Up Tilt", "type": "tilt", "len": 22,
+		"hb": [hb(4, 5, 34, -40, 30, 6, 84, 720, 380), hb(6, 7, 20, -96, 34, 6, 90, 740, 380),
+			hb(8, 10, -24, -88, 32, 6, 98, 720, 380)]}
 	m["dtilt"] = {"name": "Down Tilt", "type": "tilt", "len": 19,
 		"hb": [hb(5, 7, 54, -12, 26, 5, 78, 660, 300)]}
 	m["dash"] = {"name": "Dash Attack", "type": "tilt", "len": 34,
@@ -69,8 +71,9 @@ static func _build() -> Dictionary:
 	# ---------------- Aerials ----------------
 	m["nair"] = {"name": "Neutral Air", "type": "aerial", "air": true, "len": 34, "landlag": 7,
 		"hb": [hb(4, 7, 0, -48, 46, 8, 50, 560, 600), hb(8, 18, 0, -48, 42, 4, 60, 460, 300)]}
-	m["fair"] = {"name": "Forward Air", "type": "aerial", "air": true, "len": 36, "landlag": 11,
-		"hb": [hb(7, 10, 48, -56, 34, 10, 42, 700, 980)]}
+	# Quick overhead chop: fast, tiny landing lag, low knockback. A combo tool.
+	m["fair"] = {"name": "Forward Air", "type": "aerial", "air": true, "len": 25, "landlag": 5,
+		"hb": [hb(5, 7, 46, -50, 32, 5, 48, 520, 420)]}
 	m["bair"] = {"name": "Back Air", "type": "aerial", "air": true, "len": 34, "landlag": 12,
 		"hb": [hb(6, 9, -54, -50, 32, 12, 140, 850, 1280)]}
 	m["uair"] = {"name": "Up Air", "type": "aerial", "air": true, "len": 30, "landlag": 8,

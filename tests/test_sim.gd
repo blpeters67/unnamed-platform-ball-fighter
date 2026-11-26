@@ -15,6 +15,7 @@ func _init() -> void:
 	test_recovery()
 	test_ledge()
 	test_charges_grapple_burst()
+	test_coyote_airdodge()
 	print("RESULT: ", "PASS" if fails == 0 else "FAIL (%d)" % fails)
 	quit(1 if fails else 0)
 
@@ -271,3 +272,40 @@ func test_charges_grapple_burst() -> void:
 		for e in b.events:
 			if e.t == "ko": kos += 1
 	check(kos == 0, "burst at 900 percent near the edge does not KO (pushed to x=%d)" % (b.st.f[0].x / FX.U))
+
+func test_coyote_airdodge() -> void:
+	print("coyote jump / fast-fall forgiveness / air dodge")
+	var sim := GameSim.new()
+	var f: Dictionary = sim.st.f[0]
+	sim.st.f[1].x = -500 * FX.U
+	f.x = 600 * FX.U
+	var n := 0
+	while sim.st.f[0].ground and n < 120:
+		run(sim, Inp.RIGHT, 0, 1)
+		n += 1
+	run(sim, Inp.RIGHT, 0, 2)
+	run(sim, Inp.RIGHT | Inp.JUMP, 0, 1)
+	f = sim.st.f[0]
+	check(f.vy < CharJuno.DOUBLE_JUMP / 2 and f.jumps == CharJuno.EXTRA_JUMPS, "jump 3 frames after walking off is a grounded jump and keeps the double jump")
+	var sim2 := GameSim.new()
+	var g: Dictionary = sim2.st.f[0]
+	g.y = -300 * FX.U
+	g.ground = false
+	g.state = GameSim.S_AIR
+	g.vy = -400
+	run(sim2, Inp.DOWN, 0, 1)
+	run(sim2, 0, 0, 8)
+	check(sim2.st.f[0].ff, "down pressed slightly before the peak still fast-falls")
+	var sim3 := GameSim.new()
+	var h: Dictionary = sim3.st.f[0]
+	h.y = -400 * FX.U
+	h.x = -200 * FX.U
+	h.ground = false
+	h.state = GameSim.S_AIR
+	run(sim3, 0, 0, 1)
+	var x0: int = sim3.st.f[0].x
+	run(sim3, Inp.RIGHT | Inp.SHIELD, 0, 1)
+	run(sim3, Inp.RIGHT, 0, 20)
+	var dist: int = (sim3.st.f[0].x - x0) / FX.U
+	print("    air dodge distance: ", dist, " px")
+	check(dist > 120, "directional air dodge travels over 120 px")

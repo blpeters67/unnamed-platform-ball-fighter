@@ -62,7 +62,7 @@ func _new_fighter(id: int, stocks: int) -> Dictionary:
 		"buf": buf, "tech_age": 99, "landlag": 0, "partner": -1, "grab_t": 0, "mash": 0,
 		"stale": [], "respawn": 0, "ff": false, "dir": 0, "kos": 0, "best_combo": 0,
 		"ledge_cd": 0, "ledge_grabs": 0, "ledge_side": 0, "ledge_opt": 0,
-		"charges": BALL_CHARGES, "charge_t": 0, "burst_safe": false}
+		"charges": BALL_CHARGES, "charge_t": 0, "burst_safe": false, "coyote": 0, "ffb": 0}
 
 func _new_ball(owner: int) -> Dictionary:
 	return {"owner": owner, "st": B_HELD, "x": 0, "y": 0, "vx": 0, "vy": 0, "dx": 0, "dy": 0,
@@ -350,9 +350,14 @@ func _st_dash(f: Dictionary) -> void:
 			_set_state(f, S_SKID)
 
 func _st_run(f: Dictionary) -> void:
+	var sx := Inp.sx(f.inp)
+	# Flicking back out of a run turns around with a fresh dash.
+	if sx == -f.face and _buffered(f, Inp.DASH):
+		_consume(f, Inp.DASH)
+		_start_dash(f, sx)
+		return
 	if _ground_actions(f):
 		return
-	var sx := Inp.sx(f.inp)
 	if sx != f.face:
 		_set_state(f, S_SKID)
 		f.dir = sx
@@ -361,6 +366,11 @@ func _st_run(f: Dictionary) -> void:
 
 func _st_skid(f: Dictionary) -> void:
 	f.vx = FX.approach0(f.vx, CharJuno.GROUND_FRICTION + 30)
+	var sx := Inp.sx(f.inp)
+	if sx != 0 and _buffered(f, Inp.DASH):
+		_consume(f, Inp.DASH)
+		_start_dash(f, sx)
+		return
 	if _buffered(f, Inp.JUMP):
 		_consume(f, Inp.JUMP)
 		_set_state(f, S_JUMPSQUAT)
@@ -548,6 +558,8 @@ func _st_jumpsquat(f: Dictionary) -> void:
 		events.append({"t": "jump", "id": f.id, "x": f.x, "y": f.y})
 
 func _st_air(f: Dictionary) -> void:
+	if f.coyote > 0:
+		f.coyote -= 1
 	if _air_actions(f):
 		return
 	_air_physics(f, 1000)
@@ -566,9 +578,19 @@ func _air_actions(f: Dictionary) -> bool:
 		_set_state(f, S_AIRDODGE)
 		f.dir = (Inp.sx(f.inp) + 1) * 3 + (Inp.sy_up(f.inp) + 1)
 		return true
+	if _buffered(f, Inp.JUMP) and f.coyote > 0:
+		# Coyote time: a jump just after walking off a ledge is a grounded jump
+		# and keeps the double jump.
+		_consume(f, Inp.JUMP)
+		f.coyote = 0
+		f.vy = CharJuno.FULL_HOP
+		f.ff = false
+		events.append({"t": "jump", "id": f.id, "x": f.x, "y": f.y})
+		return true
 	if _buffered(f, Inp.JUMP) and f.jumps > 0:
 		_consume(f, Inp.JUMP)
 		f.jumps -= 1
+		f.coyote = 0
 		f.vy = CharJuno.DOUBLE_JUMP
 		f.vx = Inp.sx(f.inp) * CharJuno.AIR_SPEED
 		f.ff = false
@@ -609,8 +631,15 @@ func _air_actions(f: Dictionary) -> bool:
 	return false
 
 func _air_physics(f: Dictionary, drift_pm: int) -> void:
-	if _pressed(f, Inp.DOWN) and f.vy > -200:
+	# Fast-fall forgiveness: a down press up to 6 frames early still counts,
+	# and holding down right after leaving a ledge fast-falls too.
+	if _pressed(f, Inp.DOWN):
+		f.ffb = 6
+	elif f.ffb > 0:
+		f.ffb -= 1
+	if f.vy > -200 and (f.ffb > 0 or (f.coyote > 0 and (f.inp & Inp.DOWN) != 0)):
 		f.ff = true
+		f.ffb = 0
 	var maxf: int = CharJuno.FAST_FALL if f.ff else CharJuno.MAX_FALL
 	if f.ff:
 		f.vy = maxi(f.vy, CharJuno.FAST_FALL / 2)
@@ -1037,13 +1066,13 @@ func _st_airdodge(f: Dictionary) -> void:
 	if f.sf == 1:
 		var sx: int = f.dir / 3 - 1
 		var sy: int = f.dir % 3 - 1
-		var sp := 1050 if (sx == 0 or sy == 0) else 742
+		var sp := 1600 if (sx == 0 or sy == 0) else 1131
 		f.vx = sx * sp
 		f.vy = -sy * sp
 		f.ff = false
 	if f.sf <= 18:
-		f.vx = f.vx * 88 / 100
-		f.vy = f.vy * 88 / 100
+		f.vx = f.vx * 91 / 100
+		f.vy = f.vy * 91 / 100
 	else:
 		_air_physics(f, 500)
 	if f.sf >= 28:
@@ -1265,6 +1294,7 @@ func _on_leave_ground(f: Dictionary) -> void:
 		S_IDLE, S_WALK, S_LAND, S_SHIELD, S_SHIELDSTUN, S_ROLL, S_SPOTDODGE, S_KNOCKDOWN, S_GETUP, S_TECH, S_JUMPSQUAT, S_DASH, S_RUN, S_SKID:
 			_set_state(f, S_AIR)
 			f.tumble = false
+			f.coyote = 5
 
 func _on_land(f: Dictionary) -> void:
 	f.ground = true

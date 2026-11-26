@@ -14,9 +14,9 @@ const PALETTES := [
 # Which limb strikes for each move, and a wind-up offset for it.
 const STRIKE := {
 	"jab": ["hand_f", Vector2(4, -56)], "jab2": ["hand_b", Vector2(0, -58)], "jab3": ["foot_f", Vector2(-10, -20)],
-	"ftilt": ["foot_f", Vector2(-8, -18)], "utilt": ["hand_f", Vector2(14, -50)], "dtilt": ["foot_f", Vector2(0, -8)],
+	"ftilt": ["foot_f", Vector2(-8, -18)], "utilt": ["foot_f", Vector2(30, -20)], "dtilt": ["foot_f", Vector2(0, -8)],
 	"dash": ["foot_f", Vector2(-6, -30)], "fsmash": ["hand_f", Vector2(-30, -60)], "usmash": ["hand_f", Vector2(20, -30)],
-	"dsmash": ["foot_f", Vector2(0, -16)], "nair": ["foot_f", Vector2(6, -30)], "fair": ["foot_f", Vector2(-10, -40)],
+	"dsmash": ["foot_f", Vector2(0, -16)], "nair": ["foot_f", Vector2(6, -30)], "fair": ["hand_f", Vector2(6, -104)],
 	"bair": ["foot_b", Vector2(4, -30)], "uair": ["foot_f", Vector2(10, -24)], "dair": ["foot_f", Vector2(8, -40)],
 	"nspecial": ["hand_f", Vector2(10, -50)], "sspecial": ["hand_f", Vector2(-10, -56)], "uspecial": ["hand_f", Vector2(10, -40)],
 	"dspecial": ["foot_f", Vector2(10, -40)], "dspecial_air": ["foot_f", Vector2(4, -12)], "dspecial_land": ["foot_f", Vector2(6, -6)],
@@ -264,6 +264,15 @@ static func _attack_pose(p: Dictionary, f: Dictionary, sim: GameSim) -> void:
 				p.rot = float(mf - f0) / maxf(1.0, f1 - f0) * TAU * (2.0 if id == "nspecial" else 1.0)
 				p.hand_b = Vector2(-34, -54)
 				p.foot_b = Vector2(-30, -20)
+		"utilt":
+			# Falco-style flip kick: backflip while the foot sweeps the arc
+			if mf >= 3 and mf <= 13:
+				var k = float(mf - 3) / 10.0
+				p.rot = -k * TAU
+				p.foot_f = Vector2(30, -40)
+				p.foot_b = Vector2(10, -20)
+				p.hand_f = Vector2(10, -40)
+				p.hand_b = Vector2(-10, -40)
 		"uspecial":
 			p.rot = prog * TAU * 2.0 if mf >= 5 and mf <= 20 else 0.0
 			p.foot_f = Vector2(6, -6)
@@ -282,7 +291,7 @@ static func _attack_pose(p: Dictionary, f: Dictionary, sim: GameSim) -> void:
 				p.neck.x += 10
 				p.head.x += 14
 				p.foot_b = Vector2(-30, -10)
-		"jab3", "dash", "ftilt", "fair":
+		"jab3", "dash", "ftilt":
 			if mf >= f0 and mf <= f1:
 				p.foot_b = Vector2(-14, -4 if f.ground else -26)
 
@@ -326,8 +335,9 @@ static func draw(ci: CanvasItem, f: Dictionary, p: Dictionary, origin: Vector2, 
 	var hb: Vector2 = W.call(p.hand_b)
 	var ff: Vector2 = W.call(p.foot_f)
 	var fb: Vector2 = W.call(p.foot_b)
-	var bend_arm = -1.0 * face
-	var bend_leg = 1.0 * face
+	# Knees point forward, elbows point back/down (in the facing direction).
+	var bend_arm = 1.0 * face
+	var bend_leg = -1.0 * face
 	# Back limbs (darker)
 	_limb(ci, shoulder, hb, ik(shoulder, hb, 18, 18, bend_arm), 8.0, c_dark, c_out, c_acc, 6.5)
 	_limb(ci, hip, fb, ik(hip, fb, 22, 22, bend_leg), 10.0, c_dark, c_out, c_dark.darkened(0.2), 7.0)
